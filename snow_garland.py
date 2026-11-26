@@ -22,6 +22,11 @@ WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_NOACTIVATE = 0x08000000
 LWA_COLORKEY = 0x00000001
 
+HWND_TOPMOST = -1
+SWP_NOMOVE = 0x0002
+SWP_NOSIZE = 0x0001
+SWP_NOACTIVATE = 0x0010
+
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWCP_ROUND = 2
@@ -64,11 +69,24 @@ def get_taskbar_top(screen_h: int) -> int:
     return screen_h - 48
 
 
+def pin_topmost_noactivate(hwnd):
+    if hwnd:
+        user32.SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+
+
 class SmoothSlider(tk.Canvas):
     """Плавный ползунок на Canvas."""
 
     def __init__(self, parent, variable, lo, hi, step=1, accent="#38bdf8", bg="#141926", is_float=False):
-        super().__init__(parent, width=172, height=22, bg=bg, highlightthickness=0, bd=0, cursor="hand2")
+        super().__init__(parent, width=176, height=22, bg=bg, highlightthickness=0, bd=0, cursor="hand2")
         self.var = variable
         self.lo = float(lo)
         self.hi = float(hi)
@@ -147,11 +165,11 @@ class SwitchPill(tk.Canvas):
         self.create_oval(kx - 6.5, 3.5, kx + 6.5, 16.5, fill="#ffffff", outline="")
 
 
-class AtmosphereSingleMenuApp:
+class AtmosphereTabbedApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(MENU_TITLE)
-        self.root.geometry("456x735+90+55")
+        self.root.geometry("540x610+90+60")
         self.root.resizable(False, False)
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
@@ -159,31 +177,34 @@ class AtmosphereSingleMenuApp:
 
         try:
             self.root.update_idletasks()
-            hwnd_root = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            self.root_hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
             dwmapi.DwmSetWindowAttribute(
-                hwnd_root,
+                self.root_hwnd,
                 DWMWA_WINDOW_CORNER_PREFERENCE,
                 ctypes.byref(ctypes.c_int(DWMWCP_ROUND)),
                 ctypes.sizeof(ctypes.c_int),
             )
+            pin_topmost_noactivate(self.root_hwnd)
         except Exception:
-            pass
+            self.root_hwnd = None
 
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
 
-        # --- Погода и сугробы ---
+        # --- 1. Снег и осадки ---
         self.weather_enabled = tk.BooleanVar(value=True)
         self.auto_season = tk.BooleanVar(value=False)
         self.season = tk.StringVar(value="winter")
-        self.pile_enabled = tk.BooleanVar(value=True)
-        self.pile_max_cap = tk.IntVar(value=22)
         self.flake_shape = tk.StringVar(value="crystal")
         self.count_var = tk.IntVar(value=70)
         self.speed_var = tk.DoubleVar(value=2.0)
         self.wind_var = tk.DoubleVar(value=0.25)
 
-        # --- Снегоуборочная машина (снег и листья) ---
+        # --- 2. Сугробы и листья на окнах/вкладках ---
+        self.pile_enabled = tk.BooleanVar(value=True)
+        self.pile_max_cap = tk.IntVar(value=22)
+
+        # --- 3. Снегоуборочная машина ---
         self.plow_enabled = tk.BooleanVar(value=True)
         self.plow_mode = tk.StringVar(value="both")
         self.plow_interval = tk.IntVar(value=20)
@@ -192,7 +213,7 @@ class AtmosphereSingleMenuApp:
         self.plow_active = False
         self.plow_ticks = 0
 
-        # --- Гирлянда ---
+        # --- 4. Гирлянда ---
         self.top_garland = tk.BooleanVar(value=True)
         self.win_garland = tk.BooleanVar(value=True)
         self.win_scope = tk.StringVar(value="all")
@@ -202,10 +223,12 @@ class AtmosphereSingleMenuApp:
         self.garland_palette = tk.StringVar(value="classic")
         self.garland_spacing = tk.IntVar(value=38)
 
-        # --- Фейерверки, северное сияние и шлейф ---
+        # --- 5. Фейерверки ---
         self.fireworks_enabled = tk.BooleanVar(value=True)
         self.firework_interval = tk.IntVar(value=6)
         self.fw_ticks = 45
+
+        # --- 6. Северное сияние и шлейф ---
         self.aurora_enabled = tk.BooleanVar(value=True)
         self.cursor_trail = tk.BooleanVar(value=True)
         self.storm_timer = 0
@@ -237,8 +260,9 @@ class AtmosphereSingleMenuApp:
         self.aurora_photo = None
         self.aurora_img_id = None
         self.plow_pool = ()
-
+        self.overlay_hwnd = None
         self.my_hwnds = set()
+
         self._build_ui()
         self._init_overlay()
         self._init_pools()
@@ -249,20 +273,28 @@ class AtmosphereSingleMenuApp:
         self._anim_loop()
         self._blink_loop()
         self._windows_loop()
+        self._topmost_loop()
 
     def _collect_my_hwnds(self):
         self.my_hwnds.clear()
-        for w in (self.root, self.overlay):
-            try:
-                hwnd = user32.GetParent(w.winfo_id()) or w.winfo_id()
-                self.my_hwnds.add(hwnd)
-            except Exception:
-                pass
+        for h in (self.root_hwnd, self.overlay_hwnd):
+            if h:
+                self.my_hwnds.add(h)
 
     def _is_own_window(self, hwnd) -> bool:
         if hwnd in self.my_hwnds:
             return True
         return user32.GetParent(hwnd) in self.my_hwnds
+
+    def _topmost_loop(self):
+        try:
+            if self.overlay_hwnd:
+                pin_topmost_noactivate(self.overlay_hwnd)
+            if self.root_hwnd and self.root.state() == "normal":
+                pin_topmost_noactivate(self.root_hwnd)
+        except Exception:
+            pass
+        self.root.after(400, self._topmost_loop)
 
     # =========================================================================
     # ПЛАВНОЕ ПЕРЕТАСКИВАНИЕ ОДНОГО МЕНЮ
@@ -279,30 +311,32 @@ class AtmosphereSingleMenuApp:
 
     def _drag_stop(self, _e):
         self.dragging = False
+        if self.root_hwnd:
+            pin_topmost_noactivate(self.root_hwnd)
         self._scan_windows()
 
     # =========================================================================
-    # ЕДИНОЕ МЕНЮ С ВКЛАДКАМИ
+    # МЕНЮ С ОТДЕЛЬНОЙ ВКЛАДКОЙ ПОД КАЖДУЮ ФУНКЦИЮ
     # =========================================================================
     def _build_ui(self):
         shell = tk.Frame(self.root, bg="#0b0e17", highlightbackground="#222a40", highlightthickness=1)
         shell.pack(fill="both", expand=True)
 
-        header = tk.Frame(shell, bg="#111625", height=58)
+        header = tk.Frame(shell, bg="#111625", height=54)
         header.pack(fill="x")
         header.pack_propagate(False)
         tk.Frame(header, bg="#38bdf8", height=2).pack(fill="x", side="top")
 
         title_box = tk.Frame(header, bg="#111625")
-        title_box.pack(side="left", padx=16, pady=8)
+        title_box.pack(side="left", padx=14, pady=6)
 
-        lbl_t = tk.Label(title_box, text="✦ ATMOSPHERE STUDIO", bg="#111625", fg="#f8fafc", font=("Segoe UI", 12, "bold"))
+        lbl_t = tk.Label(title_box, text="✦ ATMOSPHERE STUDIO", bg="#111625", fg="#f8fafc", font=("Segoe UI", 11, "bold"))
         lbl_t.pack(anchor="w")
 
         s_names = {"winter": "❄️ Зима", "spring": "🌿 Весна", "summer": "✨ Лето", "autumn": "🍁 Осень"}
         lbl_s = tk.Label(
             title_box,
-            text=f"Сезон: {s_names[get_current_season()]}",
+            text=f"Сезон: {s_names[get_current_season()]} • Поверх окон",
             bg="#111625",
             fg="#64748b",
             font=("Segoe UI", 8, "bold"),
@@ -327,7 +361,7 @@ class AtmosphereSingleMenuApp:
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             width=3,
-            pady=3,
+            pady=2,
             cursor="hand2",
             command=self._minimize,
         ).pack(side="left", padx=3)
@@ -342,38 +376,47 @@ class AtmosphereSingleMenuApp:
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             width=3,
-            pady=3,
+            pady=2,
             cursor="hand2",
             command=self.root.destroy,
         ).pack(side="left", padx=3)
 
-        tab_bar = tk.Frame(shell, bg="#111625", padx=4, pady=4)
-        tab_bar.pack(fill="x", padx=16, pady=(10, 6))
+        # Отдельная вкладка для каждой функции
+        tab_bar = tk.Frame(shell, bg="#111625", padx=3, pady=3)
+        tab_bar.pack(fill="x", padx=12, pady=(8, 6))
+
+        tab_defs = [
+            ("snow", "❄️ Снег"),
+            ("piles", "⛄ Сугробы"),
+            ("plow", "🚜 Машина"),
+            ("garland", "💡 Гирлянда"),
+            ("fireworks", "🎆 Салют"),
+            ("aurora", "🌌 Аврора"),
+        ]
 
         self.tab_frames = {}
         self.tab_btns = {}
-        for key, text in [
-            ("snow", "❄️ Снег и Сугробы"),
-            ("garland", "💡 Гирлянда"),
-            ("effects", "🎆 Фейерверки и Аврора"),
-        ]:
+        for key, text in tab_defs:
             b = tk.Button(
                 tab_bar,
                 text=text,
-                font=("Segoe UI", 9, "bold"),
+                font=("Segoe UI", 8, "bold"),
                 relief="flat",
                 bd=0,
                 pady=6,
                 cursor="hand2",
                 command=lambda k=key: self._switch_tab(k),
             )
-            b.pack(side="left", expand=True, fill="x", padx=2)
+            b.pack(side="left", expand=True, fill="x", padx=1)
             self.tab_btns[key] = b
             self.tab_frames[key] = tk.Frame(shell, bg="#0b0e17")
 
         self._build_snow_tab(self.tab_frames["snow"])
+        self._build_piles_tab(self.tab_frames["piles"])
+        self._build_plow_tab(self.tab_frames["plow"])
         self._build_garland_tab(self.tab_frames["garland"])
-        self._build_effects_tab(self.tab_frames["effects"])
+        self._build_fireworks_tab(self.tab_frames["fireworks"])
+        self._build_aurora_tab(self.tab_frames["aurora"])
         self._switch_tab("snow")
 
     def _minimize(self):
@@ -385,6 +428,8 @@ class AtmosphereSingleMenuApp:
         if self.root.state() == "normal":
             self.root.unbind("")
             self.root.overrideredirect(True)
+            if self.root_hwnd:
+                pin_topmost_noactivate(self.root_hwnd)
 
     def _switch_tab(self, key: str):
         for k, f in self.tab_frames.items():
@@ -394,21 +439,21 @@ class AtmosphereSingleMenuApp:
                 bg="#2563eb" if act else "#111625",
                 fg="#ffffff" if act else "#64748b",
             )
-        self.tab_frames[key].pack(fill="both", expand=True, padx=16, pady=2)
+        self.tab_frames[key].pack(fill="both", expand=True, padx=14, pady=4)
 
     def _card(self, parent, title: str, accent="#38bdf8"):
         c = tk.Frame(parent, bg="#141926", highlightbackground="#1f273d", highlightthickness=1)
-        c.pack(fill="x", pady=4)
+        c.pack(fill="x", pady=5)
         tk.Label(c, text=title, bg="#141926", fg=accent, font=("Segoe UI", 8, "bold")).pack(
-            anchor="w", padx=12, pady=(6, 2)
+            anchor="w", padx=12, pady=(7, 3)
         )
         body = tk.Frame(c, bg="#141926")
-        body.pack(fill="x", padx=12, pady=(0, 8))
+        body.pack(fill="x", padx=12, pady=(0, 9))
         return body
 
     def _toggle(self, parent, title: str, sub: str, var: tk.BooleanVar, cmd=None, accent="#38bdf8"):
         row = tk.Frame(parent, bg="#141926")
-        row.pack(fill="x", pady=2)
+        row.pack(fill="x", pady=3)
         left = tk.Frame(row, bg="#141926")
         left.pack(side="left", fill="x", expand=True)
         tk.Label(left, text=title, bg="#141926", fg="#f1f5f9", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -418,7 +463,7 @@ class AtmosphereSingleMenuApp:
 
     def _pills(self, parent, items, getter, setter, accent="#2563eb"):
         row = tk.Frame(parent, bg="#0f1320", padx=3, pady=3)
-        row.pack(fill="x", pady=(3, 2))
+        row.pack(fill="x", pady=(4, 2))
         btns = {}
         for k, lbl in items:
             b = tk.Button(
@@ -427,7 +472,7 @@ class AtmosphereSingleMenuApp:
                 font=("Segoe UI", 8, "bold"),
                 relief="flat",
                 bd=0,
-                pady=4,
+                pady=5,
                 cursor="hand2",
                 command=lambda val=k: setter(val),
             )
@@ -448,7 +493,7 @@ class AtmosphereSingleMenuApp:
 
     def _slider_row(self, parent, lbl: str, var, lo, hi, step=1, accent="#38bdf8", is_float=False, cmd=None):
         row = tk.Frame(parent, bg="#141926")
-        row.pack(fill="x", pady=1)
+        row.pack(fill="x", pady=2)
         tk.Label(row, text=lbl, bg="#141926", fg="#cbd5e1", font=("Segoe UI", 9)).pack(side="left")
         v_lbl = tk.Label(row, text="", bg="#141926", fg=accent, font=("Segoe UI", 9, "bold"), width=5, anchor="e")
         v_lbl.pack(side="right", padx=(4, 0))
@@ -464,59 +509,73 @@ class AtmosphereSingleMenuApp:
 
         SmoothSlider(row, var, lo, hi, step=step, accent=accent, bg="#141926", is_float=is_float).pack(side="right")
 
+    # --- Вкладка 1: Снег ---
     def _build_snow_tab(self, parent):
-        c1 = self._card(parent, "СЕЗОН И ПОТОК", "#38bdf8")
-        self._toggle(c1, "Осадки / листья / светлячки", "На пустом столе падает вниз, на окнах и вкладках оседает", self.weather_enabled)
-        self._toggle(c1, "Авто-сезон по календарю", "Подстраивается под текущее время года", self.auto_season, cmd=self._on_auto_season, accent="#10b981")
+        c1 = self._card(parent, "ОСАДКИ И СЕЗОНЫ", "#38bdf8")
+        self._toggle(c1, "Включить осадки / листья / светлячки", "Падают на пустом столе и оседают сверху на окнах", self.weather_enabled)
+        self._toggle(c1, "Авто-сезон по календарю", "Автоматически выбирает сезон по месяцу", self.auto_season, cmd=self._on_auto_season, accent="#10b981")
         self._ref_season = self._pills(
             c1,
             [("winter", "❄️ Зима"), ("spring", "🌿 Весна"), ("summer", "✨ Лето"), ("autumn", "🍁 Осень")],
             self._active_season,
             self._set_season,
         )
+
+        c2 = self._card(parent, "ФОРМА И ПОТОК", "#a5b4fc")
         self._ref_shape = self._pills(
-            c1,
-            [("circle", "• Хлопья"), ("crystal", "❄ Ажурные"), ("star", "✦ Звёзды"), ("mix", "🎲 Микс")],
+            c2,
+            [("circle", "• Хлопья"), ("crystal", "❄ Кристаллы"), ("star", "✦ Звёзды"), ("mix", "🎲 Микс")],
             self.flake_shape.get,
             self._set_shape,
             accent="#6366f1",
         )
-        self._slider_row(c1, "Плотность:", self.count_var, 15, 130, 1, accent="#38bdf8", cmd=self._rebuild_particles)
-        self._slider_row(c1, "Скорость:", self.speed_var, 0.6, 6.0, 0.2, accent="#38bdf8", is_float=True)
-        self._slider_row(c1, "Ветер:", self.wind_var, -2.5, 2.5, 0.1, accent="#38bdf8", is_float=True)
+        self._slider_row(c2, "Плотность частиц:", self.count_var, 15, 130, 1, accent="#38bdf8", cmd=self._rebuild_particles)
+        self._slider_row(c2, "Скорость падения:", self.speed_var, 0.6, 6.0, 0.2, accent="#38bdf8", is_float=True)
+        self._slider_row(c2, "Сила ветра:", self.wind_var, -2.5, 2.5, 0.1, accent="#38bdf8", is_float=True)
 
-        c2 = self._card(parent, "СУГРОБЫ И ФИЗИКА ОКОН/ВКЛАДОК", "#60a5fa")
-        self._toggle(c2, "Накапливать сугробы и листья", "При сдвиге окна/вкладки или лимите высоты осыпаются вниз", self.pile_enabled, cmd=self._on_pile_toggle)
-        self._slider_row(c2, "Лимит высоты сугроба (px):", self.pile_max_cap, 8, 45, 1, accent="#60a5fa")
+    # --- Вкладка 2: Сугробы ---
+    def _build_piles_tab(self, parent):
+        c1 = self._card(parent, "НАКОПЛЕНИЕ И ФИЗИКА", "#60a5fa")
+        self._toggle(
+            c1,
+            "Накапливать сугробы и листья",
+            "Копятся на окнах, вкладках и панели задач; при сдвиге окна осыпаются",
+            self.pile_enabled,
+            cmd=self._on_pile_toggle,
+        )
+        self._slider_row(c1, "Лимит высоты до осыпания (px):", self.pile_max_cap, 8, 45, 1, accent="#60a5fa")
         tk.Button(
-            c2,
-            text="🧹 Очистить сугробы и листья",
+            c1,
+            text="🧹 Очистить все сугробы и листья",
             bg="#1e263b",
             fg="#e2e8f0",
             activebackground="#2b3654",
-            font=("Segoe UI", 8, "bold"),
+            font=("Segoe UI", 9, "bold"),
             relief="flat",
-            pady=4,
+            pady=6,
             cursor="hand2",
             command=self._clear_pile,
-        ).pack(fill="x", pady=(3, 0))
+        ).pack(fill="x", pady=(6, 0))
 
-        c3 = self._card(parent, "СНЕГОУБОРОЧНАЯ МАШИНА (СНЕГ И ЛИСТЬЯ)", "#f59e0b")
-        self._toggle(c3, "Уборочная машина", "Убирает снег и листья по времени или по порогу", self.plow_enabled, accent="#f59e0b")
+    # --- Вкладка 3: Машина ---
+    def _build_plow_tab(self, parent):
+        c1 = self._card(parent, "СНЕГОУБОРОЧНАЯ МАШИНА", "#f59e0b")
+        self._toggle(c1, "Уборочная машина", "Проезжает и убирает снег и листья", self.plow_enabled, accent="#f59e0b")
         self._ref_plow = self._pills(
-            c3,
-            [("both", "⏱️+📏 Оба"), ("time", "⏱️ По времени"), ("threshold", "📏 По порогу")],
+            c1,
+            [("both", "⏱️+📏 Время или порог"), ("time", "⏱️ По времени"), ("threshold", "📏 По порогу")],
             self.plow_mode.get,
             self._set_plow_mode,
             accent="#d97706",
         )
-        self._slider_row(c3, "Интервал рейса (сек):", self.plow_interval, 5, 120, 5, accent="#f59e0b")
-        self._slider_row(c3, "Порог высоты (px):", self.plow_threshold, 4, 30, 1, accent="#f59e0b")
+        self._slider_row(c1, "Интервал рейса (сек):", self.plow_interval, 5, 120, 5, accent="#f59e0b")
+        self._slider_row(c1, "Порог высоты сугроба (px):", self.plow_threshold, 4, 30, 1, accent="#f59e0b")
 
+    # --- Вкладка 4: Гирлянда ---
     def _build_garland_tab(self, parent):
-        c1 = self._card(parent, "ГДЕ И ВИД ГИРЛЯНДЫ", "#fbbf24")
+        c1 = self._card(parent, "РАСПОЛОЖЕНИЕ И ФОРМА", "#fbbf24")
         self._toggle(c1, "Гирлянда вверху экрана", "Вдоль верхнего края монитора", self.top_garland, accent="#f59e0b")
-        self._toggle(c1, "Гирлянда на окнах", "Закрепляется на верхних рамках окон", self.win_garland, accent="#f59e0b")
+        self._toggle(c1, "Гирлянда на окнах", "Крепится на верхних рамках окон", self.win_garland, accent="#f59e0b")
         self._ref_scope = self._pills(
             c1,
             [("all", "На всех окнах"), ("active", "Только активное")],
@@ -532,7 +591,7 @@ class AtmosphereSingleMenuApp:
             accent="#ea580c",
         )
 
-        c2 = self._card(parent, "РАЗМЕР И РЕЖИМ", "#f472b6")
+        c2 = self._card(parent, "РАЗМЕР, РЕЖИМ И ЦВЕТА", "#f472b6")
         self._slider_row(c2, "Размер гирлянды:", self.garland_scale, 0.6, 1.8, 0.05, accent="#f472b6", is_float=True)
         self._slider_row(c2, "Шаг между лампочками (px):", self.garland_spacing, 24, 72, 2, accent="#f472b6")
         self._ref_mode = self._pills(
@@ -542,23 +601,22 @@ class AtmosphereSingleMenuApp:
             self._set_mode,
             accent="#db2777",
         )
-
-        c3 = self._card(parent, "ПАЛИТРА ЦВЕТОВ", "#34d399")
         self._ref_pal = self._pills(
-            c3,
+            c2,
             [("classic", "🎄 Классика"), ("warm", "🕯️ Тёплая"), ("cyber", "🟣 Неон"), ("ice", "🧊 Лёд")],
             self.garland_palette.get,
             self._set_palette,
             accent="#059669",
         )
 
-    def _build_effects_tab(self, parent):
+    # --- Вкладка 5: Фейерверки ---
+    def _build_fireworks_tab(self, parent):
         c1 = self._card(parent, "ФЕЙЕРВЕРКИ", "#f43f5e")
-        self._toggle(c1, "Автоматические фейерверки", "Запускаются по заданному интервалу", self.fireworks_enabled, accent="#f43f5e")
+        self._toggle(c1, "Автоматический запуск", "Запускает залпы через выбранный интервал", self.fireworks_enabled, accent="#f43f5e")
         self._slider_row(c1, "Интервал запуска (сек):", self.firework_interval, 2, 30, 1, accent="#f43f5e")
         tk.Button(
             c1,
-            text="🎆 Запустить фейерверк сейчас",
+            text="🎆 Запустить залп сейчас",
             bg="#7c3aed",
             fg="#ffffff",
             activebackground="#6d28d9",
@@ -569,11 +627,13 @@ class AtmosphereSingleMenuApp:
             command=self._spawn_firework_burst,
         ).pack(fill="x", pady=(6, 0))
 
-        c2 = self._card(parent, "СЕВЕРНОЕ СИЯНИЕ И ШЛЕЙФ", "#2dd4bf")
-        self._toggle(c2, "Северное сияние вверху экрана", "Плавные переливающиеся волны без пикселей", self.aurora_enabled, accent="#14b8a6")
-        self._toggle(c2, "Шлейф за курсором", "Искорки при движении мыши", self.cursor_trail, accent="#a855f7")
+    # --- Вкладка 6: Аврора и шлейф ---
+    def _build_aurora_tab(self, parent):
+        c1 = self._card(parent, "СЕВЕРНОЕ СИЯНИЕ И ФИШКИ", "#2dd4bf")
+        self._toggle(c1, "Северное сияние вверху экрана", "Мягкое непиксельное переливание у верхней кромки", self.aurora_enabled, accent="#14b8a6")
+        self._toggle(c1, "Волшебный шлейф за курсором", "Искорки при движении мыши", self.cursor_trail, accent="#a855f7")
         tk.Button(
-            c2,
+            c1,
             text="🌬️ Порыв метели на 5 сек",
             bg="#2563eb",
             fg="#ffffff",
@@ -583,7 +643,7 @@ class AtmosphereSingleMenuApp:
             pady=6,
             cursor="hand2",
             command=self._trigger_storm,
-        ).pack(fill="x", pady=(4, 0))
+        ).pack(fill="x", pady=(6, 0))
 
     # --- Коллбэки ---
     def _on_auto_season(self):
@@ -657,7 +717,7 @@ class AtmosphereSingleMenuApp:
             )
 
     # =========================================================================
-    # КЛИК-СКВОЗНОЙ ОВЕРЛЕЙ И ПУЛЫ
+    # КЛИК-СКВОЗНОЙ ОВЕРЛЕЙ ПОВЕРХ ВСЕХ ОКОН
     # =========================================================================
     def _init_overlay(self):
         self.overlay = tk.Toplevel(self.root)
@@ -677,6 +737,7 @@ class AtmosphereSingleMenuApp:
         self.overlay.update_idletasks()
 
         hwnd = user32.GetParent(self.overlay.winfo_id()) or self.overlay.winfo_id()
+        self.overlay_hwnd = hwnd
         ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
         user32.SetWindowLongW(
             hwnd,
@@ -692,6 +753,7 @@ class AtmosphereSingleMenuApp:
         g = int(TRANSPARENT_KEY[3:5], 16)
         b = int(TRANSPARENT_KEY[5:7], 16)
         user32.SetLayeredWindowAttributes(hwnd, (b << 16) | (g << 8) | r, 0, LWA_COLORKEY)
+        pin_topmost_noactivate(hwnd)
 
     def _init_pools(self):
         self.aurora_img_id = self.canvas.create_image(0, 0, anchor="nw", state="hidden")
@@ -720,7 +782,6 @@ class AtmosphereSingleMenuApp:
             cap = self.canvas.create_oval(-20, -20, -15, -15, fill="#ffffff", outline="", state="hidden")
             self.pile_pool.append((base, cap))
 
-        # Гирлянда БЕЗ stipple-ореолов: цвет строго внутри лампочки/сосульки/звезды
         for _ in range(260):
             wire = self.canvas.create_line(-20, -20, -10, -20, fill="#1e2433", width=2, state="hidden")
             socket = self.canvas.create_rectangle(-20, -20, -15, -15, fill="#334155", outline="#0f172a", width=1, state="hidden")
@@ -1323,5 +1384,5 @@ class AtmosphereSingleMenuApp:
 
 
 if __name__ == "__main__":
-    app = AtmosphereSingleMenuApp()
+    app = AtmosphereTabbedApp()
     app.root.mainloop()

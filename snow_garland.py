@@ -240,7 +240,7 @@ DEFAULTS = {
     "wobble": 1.0,
     "only_desktop": False,
     "pause_fullscreen": True,
-    "pause_on_close": True,
+    "pause_on_close": False,
     "gust_power": 0.6, "gust_speed": 1.0,
     "blizzard_every": 0, "blizzard_len": 25, "blizzard_power": 1.5,
     "cursor_mode": "Физика ветра", "cursor_radius": 90, "cursor_force": 1.0,
@@ -747,7 +747,7 @@ class Engine:
             return
         if self.check_fullscreen_pause():
             return
-        if now - self.last_win_scan >= 0.22 or self.dirty_scene:
+        if now - self.last_win_scan >= 0.14 or self.dirty_scene:
             self.last_win_scan = now
             self.guard("scene", self.refresh_scene, now)
         if self.effect_on.get("neon"):
@@ -1874,15 +1874,27 @@ class Engine:
                 out += [x + pts[i] * d, y + pts[i + 1]]
             return out
 
-        cv.create_polygon(*P(-34, -6, -34, -18, 20, -18, 24, -6), fill="#FBC02D", outline="#7A5B00", tags=t)
-        cv.create_polygon(*P(-28, -18, -22, -31, -4, -31, 2, -18), fill="#FBC02D", outline="#7A5B00", tags=t)
-        cv.create_polygon(*P(26, -26, 42, -6, 42, 1, 26, 1), fill="#EF6C00", outline="#7A3300", tags=t)
-        for wx, wr in ((-20, 6), (8, 6)):
+        # Рама и кузов
+        cv.create_polygon(*P(-36, -7, -36, -19, 22, -19, 26, -7), fill="#FFB300", outline="#5D4037", width=1.5, tags=t)
+        cv.create_line(*P(-32, -12, 20, -12), fill="#FFF8E1", width=1.5, tags=t)
+        # Кабина и лобовое стекло
+        cv.create_polygon(*P(-28, -19, -22, -33, -3, -33, 3, -19), fill="#FFA000", outline="#5D4037", width=1.5, tags=t)
+        cv.create_polygon(*P(-21, -21, -18, -30, -6, -30, -2, -21), fill="#81D4FA", outline="#263238", width=1, tags=t)
+        # Отвал с металлической кромкой
+        cv.create_polygon(*P(25, -29, 44, -8, 44, 0, 25, 0), fill="#F57C00", outline="#3E2723", width=1.5, tags=t)
+        cv.create_line(*P(43, -8, 43, 0), fill="#ECEFF1", width=2, tags=t)
+        # Фара спереди
+        cv.create_oval(x + 25 * d - 2.5, y - 15, x + 25 * d + 2.5, y - 10, fill="#FFF59D", outline="#5D4037", tags=t)
+        # Колёса и колпаки
+        for wx, wr in ((-21, 6.5), (10, 6.5)):
             cx = x + wx * d
-            cv.create_oval(cx - wr, y - 5 - wr, cx + wr, y - 5 + wr, fill="#263238", outline="", tags=t)
-        bc = "#FF9800" if int(now * 6) % 2 == 0 else "#7A2E00"
+            cv.create_oval(cx - wr, y - 6 - wr, cx + wr, y - 6 + wr, fill="#263238", outline="#11171A", width=1.5, tags=t)
+            cv.create_oval(cx - 2.5, y - 8.5, cx + 2.5, y - 3.5, fill="#90A4AE", outline="", tags=t)
+        # Мигалка
+        bc = "#FF5252" if int(now * 7) % 2 == 0 else "#7F0000"
         bx = x - 12 * d
-        cv.create_oval(bx - 3, y - 37, bx + 3, y - 31, fill=bc, outline="", tags=t)
+        cv.create_rectangle(bx - 4, y - 35, bx + 4, y - 33, fill="#37474F", outline="", tags=t)
+        cv.create_oval(bx - 3.5, y - 41, bx + 3.5, y - 34, fill=bc, outline="", tags=t)
 
     def spawn_fx(self, x, y, vx, vy, life, col, size, g=0.0, drag=0.97, glyph=None, ring=False):
         if len(self.fx) >= FX_LIMIT:
@@ -2011,10 +2023,10 @@ class Engine:
             d = 1 if st["vx"] > 0 else -1
             self.draw_santa(sx, sy, d, sz)
             if self.frame % 3 == 0:
-                self.spawn_fx(sx - 24 * d * sz, sy + random.uniform(-4, 6),
+                self.spawn_fx(sx - 28 * d * sz, sy + random.uniform(-4, 6),
                               -st["vx"] * 0.2, random.uniform(-0.4, 0.4),
                               14, "#FFD54F", 1.7 * sz, glyph="✦")
-            if -140 < sx < self.W + 140:
+            if -160 < sx < self.W + 160:
                 keep_santa.append(st)
         self.santas = keep_santa
 
@@ -2030,20 +2042,50 @@ class Engine:
 
     def spawn_santa(self):
         d = random.choice((-1, 1))
-        x = -90.0 if d > 0 else float(self.W + 90)
+        x = -110.0 if d > 0 else float(self.W + 110)
         y = random.uniform(0.08, 0.28) * self.H
         self.santas.append({"x": x, "y": y, "vx": d * 4.5, "ph": 0.0})
 
     def draw_santa(self, x, y, d, s):
         cv = self.cv
-        rx = x + 36 * d * s
-        cv.create_oval(rx - 9 * s, y - 5 * s, rx + 9 * s, y + 4 * s, fill="#8D6E63", outline="", tags="santa")
-        cv.create_oval(rx + 10 * d * s - 2 * s, y - 7 * s, rx + 10 * d * s + 2 * s, y - 3 * s, fill="#FF3B30", outline="", tags="santa")
-        cv.create_line(x + 12 * d * s, y, rx - 6 * d * s, y - 2 * s, fill="#FFD54F", width=1, tags="santa")
-        cv.create_polygon(x - 22 * d * s, y + 6 * s, x + 16 * d * s, y + 6 * s,
-                          x + 12 * d * s, y - 6 * s, x - 18 * d * s, y - 6 * s,
-                          fill="#D32F2F", outline="#FFD54F", tags="santa")
-        cv.create_oval(x - 8 * s, y - 15 * s, x + 4 * s, y - 4 * s, fill="#E53935", outline="", tags="santa")
+        # Олень впереди с рогами и ногами
+        rx = x + 42 * d * s
+        ry = y - 2 * s
+        cv.create_oval(rx - 11 * s, ry - 5 * s, rx + 11 * s, ry + 5 * s, fill="#795548", outline="#3E2723", tags="santa")
+        cv.create_oval(rx + 10 * d * s - 5 * s, ry - 11 * s, rx + 10 * d * s + 5 * s, ry - 1 * s,
+                       fill="#795548", outline="#3E2723", tags="santa")
+        cv.create_oval(rx + 15 * d * s - 2 * s, ry - 8 * s, rx + 15 * d * s + 2 * s, ry - 4 * s,
+                       fill="#FF3B30", outline="", tags="santa")
+        # Рога оленя
+        hx = rx + 9 * d * s
+        hy = ry - 11 * s
+        cv.create_line(hx, hy, hx - 3 * d * s, hy - 8 * s, hx - 7 * d * s, hy - 11 * s,
+                       fill="#D7CCC8", width=max(1, int(1.6 * s)), tags="santa")
+        cv.create_line(hx - 3 * d * s, hy - 8 * s, hx + 1 * d * s, hy - 12 * s,
+                       fill="#D7CCC8", width=max(1, int(1.6 * s)), tags="santa")
+        # Ноги оленя
+        for lx in (-6, 5):
+            cv.create_line(rx + lx * s, ry + 4 * s, rx + (lx + 2 * d) * s, ry + 11 * s,
+                           fill="#4E342E", width=max(1, int(1.6 * s)), tags="santa")
+        # Вожжи
+        cv.create_line(x + 16 * d * s, y - 2 * s, rx - 9 * d * s, ry - 2 * s,
+                       fill="#FFD54F", width=max(1, int(1.4 * s)), tags="santa")
+        # Полозья и корпус саней
+        cv.create_line(x - 28 * s, y + 10 * s, x + 22 * s, y + 10 * s,
+                       fill="#FFD54F", width=max(2, int(2.2 * s)), tags="santa")
+        cv.create_line(x + 22 * s, y + 10 * s, x + 27 * s, y + 5 * s,
+                       fill="#FFD54F", width=max(2, int(2.2 * s)), tags="santa")
+        cv.create_line(x - 18 * s, y + 5 * s, x - 18 * s, y + 10 * s, fill="#FFE082", width=1.5, tags="santa")
+        cv.create_line(x + 12 * s, y + 5 * s, x + 12 * s, y + 10 * s, fill="#FFE082", width=1.5, tags="santa")
+        cv.create_polygon(x - 24 * s, y + 5 * s, x + 19 * s, y + 5 * s, x + 23 * s, y - 4 * s,
+                          x - 26 * s, y - 6 * s, fill="#C62828", outline="#FFD54F", width=1.5, tags="santa")
+        # Санта в шапке
+        sx_s = x - 3 * d * s
+        cv.create_oval(sx_s - 6 * s, y - 13 * s, sx_s + 6 * s, y - 4 * s, fill="#E53935", outline="", tags="santa")
+        cv.create_polygon(sx_s - 5 * s, y - 12 * s, sx_s + 5 * s, y - 12 * s, sx_s - 8 * d * s, y - 21 * s,
+                          fill="#D32F2F", outline="", tags="santa")
+        cv.create_oval(sx_s - 8 * d * s - 2 * s, y - 22 * s, sx_s - 8 * d * s + 2 * s, y - 18 * s,
+                       fill="#FFFFFF", outline="", tags="santa")
 
     def spawn_meteor(self):
         dirx = random.choice((-1, 1))
@@ -2104,7 +2146,7 @@ class Engine:
 
     def build_aurora(self):
         cv = self.cv
-        self.aur_cols = max(12, min(20, int(self.W // 100)))
+        self.aur_cols = max(14, min(22, int(self.W // 90)))
         self.aur = []
         for _b in range(2):
             cols = []
@@ -2123,7 +2165,7 @@ class Engine:
         return mix(pal[i], pal[min(i + 1, len(pal) - 1)], x - i)
 
     def update_aurora(self, now):
-        if self.frame % 8:
+        if self.frame % 4:
             return
         cv, cfg = self.cv, self.cfg
         W, H = self.W, self.H
@@ -2131,10 +2173,10 @@ class Engine:
         n = self.aur_cols
         dx = W / n
         Ht = H * cfg["aurora_height"] / 100.0
-        recolor = self.frame % 24 == 0
+        recolor = self.frame % 12 == 0
         behind = cfg["aurora_behind"] or cfg["only_desktop"]
         for b in range(2):
-            base = Ht * (0.22 + 0.18 * b)
+            base = Ht * (0.20 + 0.18 * b)
             amp = Ht * 0.16
             ytop = [base + amp * math.sin(i * dx * 0.004 + t * 0.4 + b * 1.7) for i in range(n + 1)]
             ln = [Ht * (0.30 + 0.20 * math.sin(i * dx * 0.006 + t * 0.3 + b * 2.1)) for i in range(n + 1)]
@@ -2174,7 +2216,7 @@ class Engine:
             return
         cv, cfg = self.cv, self.cfg
         tw = cfg["stars_twinkle"]
-        chk = self.frame % 24 == 0
+        chk = self.frame % 16 == 0
         for s in self.stars:
             f = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(now * tw * 2 + s["ph"]))
             cv.itemconfigure(s["id"], fill=blend(s["tint"], f))
@@ -2190,31 +2232,39 @@ class Engine:
         if body == "Авто":
             body = "Солнце" if 6 <= time.localtime().tm_hour < 19 else "Луна"
         S = float(cfg["sky_size"])
-        cx = self.W - S * 1.8 if cfg["sky_corner"].startswith("Прав") else S * 1.8
-        cy = S * 1.6
+        margin_x = max(12.0, S * 0.65)
+        margin_y = max(12.0, S * 0.65)
+        cx = (self.W - margin_x) if cfg["sky_corner"].startswith("Прав") else margin_x
+        cy = margin_y
         self.sky = {"body": body, "cx": cx, "cy": cy, "S": S, "hid": False, "ids": [], "rays": []}
         ids = self.sky["ids"]
         if body == "Луна":
-            ids.append(cv.create_oval(cx - S * 0.5, cy - S * 0.5, cx + S * 0.5, cy + S * 0.5,
-                                      fill="#F4F1DE", outline="#FFFFFF", tags="e_sky"))
+            r = S * 0.45
+            ids.append(cv.create_oval(cx - r, cy - r, cx + r, cy + r,
+                                      fill="#F6F2DC", outline="#FFFFFF", width=2, tags="e_sky"))
+            for dx, dy, cr in ((-0.16, -0.1, 0.11), (0.14, 0.08, 0.08), (-0.04, 0.17, 0.06)):
+                ids.append(cv.create_oval(cx + dx * S - cr * S, cy + dy * S - cr * S,
+                                          cx + dx * S + cr * S, cy + dy * S + cr * S,
+                                          fill="#DDD6B8", outline="", tags="e_sky"))
         else:
-            for _ in range(8):
-                self.sky["rays"].append(cv.create_line(0, 0, 1, 1, fill="#FFE082", width=2, tags="e_sky"))
-            ids.append(cv.create_oval(cx - S * 0.45, cy - S * 0.45, cx + S * 0.45, cy + S * 0.45,
-                                      fill="#FFD54F", outline="#FFF3B0", width=2, tags="e_sky"))
+            for i in range(12):
+                self.sky["rays"].append(cv.create_line(0, 0, 1, 1, fill="#FFD54F", width=2.5, tags="e_sky"))
+            ids.append(cv.create_oval(cx - S * 0.42, cy - S * 0.42, cx + S * 0.42, cy + S * 0.42,
+                                      fill="#FFCA28", outline="#FFF59D", width=2, tags="e_sky"))
 
     def update_sky(self, now):
-        if self.frame % 8:
+        if self.frame % 6:
             return
         sk, cv = self.sky, self.cv
         if sk["rays"]:
             cx, cy, S = sk["cx"], sk["cy"], sk["S"]
+            n_rays = len(sk["rays"])
             for i, rid in enumerate(sk["rays"]):
-                a = now * 0.25 + i * math.pi / 4
-                ln = S * (0.85 + 0.15 * math.sin(now * 2 + i))
-                cv.coords(rid, cx + math.cos(a) * S * 0.55, cy + math.sin(a) * S * 0.55,
+                a = now * 0.25 + i * (2 * math.pi / n_rays)
+                ln = S * (0.72 + 0.12 * math.sin(now * 2.2 + i))
+                cv.coords(rid, cx + math.cos(a) * S * 0.48, cy + math.sin(a) * S * 0.48,
                           cx + math.cos(a) * ln, cy + math.sin(a) * ln)
-        if self.frame % 24 == 0:
+        if self.frame % 12 == 0:
             hid = self.covered(sk["cx"], sk["cy"])
             if hid != sk["hid"]:
                 sk["hid"] = hid
@@ -2327,16 +2377,13 @@ class Engine:
         cx = (r - self.vx - 44 * s - Tw / 2) if place_right else (l - self.vx + 44 * s + Tw / 2)
         tg = "e_tree"
 
-        # Ствол
         cv.create_rectangle(cx - 10 * s, by - Th * 0.16, cx + 10 * s, by, fill="#6D4C41", outline="#3E2723", tags=tg)
 
-        # Ярусы хвои
         layers = ((0.46, 0.12, 0.54), (0.72, 0.38, 0.42), (0.96, 0.64, 0.28))
         for apex, base, hw in layers:
             cv.create_polygon(cx, by - Th * apex, cx - Tw * hw, by - Th * base, cx + Tw * hw, by - Th * base,
                               fill="#1B8A3A", outline="#0E5A24", width=2, tags=tg)
 
-        # Мишура зигзагом по ярусам
         tinsel_cols = [cfg["color1"], cfg["color2"], cfg["color3"], cfg["color4"], "#FFD54F"]
         for idx_l, (apex, base, hw) in enumerate(layers):
             y_hi = by - Th * (apex - (apex - base) * 0.22)
@@ -2352,7 +2399,6 @@ class Engine:
             m_col = tinsel_cols[idx_l % len(tinsel_cols)]
             cv.create_line(*pts_m, fill=m_col, width=max(2, int(3.2 * s)), tags=tg)
 
-        # Звезда на макушке
         pts = []
         for q in range(10):
             ang = -math.pi / 2 + q * math.pi / 5
@@ -2360,7 +2406,6 @@ class Engine:
             pts += [cx + math.cos(ang) * rad, by - Th * 1.0 + math.sin(ang) * rad]
         cv.create_polygon(*pts, fill="#FFD54F", outline="#FFF3B0", tags=tg)
 
-        # Огоньки на ёлке
         rnd = random.Random(5)
         self.tree_lights = []
         for apex, base, hw in layers:
@@ -2374,7 +2419,6 @@ class Engine:
                 o = cv.create_oval(xx - rr, yy - rr, xx + rr, yy + rr, fill=col, outline="#FFFFFF", tags=tg)
                 self.tree_lights.append((o, col, rnd.uniform(0, 6.3)))
 
-        # Подарки под ёлкой с бантиками
         gifts = [
             (-1.05, 36, 28, "#E53935", "#FFD54F"),
             (0.45, 32, 24, "#1E88E5", "#FFFFFF"),
@@ -2472,10 +2516,15 @@ class App:
     def hide_to_background(self):
         save_cfg(self.cfg, make_backup=False)
         self.root.withdraw()
-        if self.cfg.get("pause_on_close", True):
+        if self.cfg.get("pause_on_close", False):
             self.paused_background = True
             self.engine.visible = False
             self.ov.withdraw()
+        else:
+            self.paused_background = False
+            self.engine.visible = self.visible
+            if self.visible:
+                self.ov.deiconify()
 
     def build_overlay(self):
         self.ov = tk.Toplevel(self.root)
@@ -2622,7 +2671,6 @@ class App:
         nb = ttk.Notebook(self.root)
         nb.pack(fill="both", expand=True, padx=12, pady=8)
 
-        # --- Что падает (включая Метель)
         t = self.tab(nb, "Что падает")
         self.combo(t, "Сезон", "season", ["Авто", "Зима", "Осень", "Весна", "Лето"])
         self.combo(t, "Что падает", "fall_mode", ["По сезону", "Свой набор", "По погоде города"])
@@ -2664,7 +2712,6 @@ class App:
         self.scale(t, "Покачивание", "wobble", 0.0, 4.0, 0.1)
         self.check(t, "Только на рабочем столе (не считая гирлянды/сугробов на окнах)", "only_desktop")
 
-        # --- Физика
         t = self.tab(nb, "Физика")
         self.section(t, "Ветер")
         self.scale(t, "Порывы ветра", "gust_power", 0.0, 3.0, 0.1)
@@ -2681,7 +2728,6 @@ class App:
         self.scale(t, "Макс. снеговиков", "snowman_max", 1, 15, 1)
         self.scale(t, "Время таяния, сек (0 — не тают)", "snowman_melt_sec", 0, 600, 15)
 
-        # --- Гирлянда
         t = self.tab(nb, "Гирлянда")
         self.check(t, "Включить гирлянду", "garland_enabled")
         self.check(t, "Только зимой", "garland_winter_only")
@@ -2705,7 +2751,6 @@ class App:
         self.combo(t, "Режим мигания", "blink_mode", BLINK_MODES)
         self.scale(t, "Скорость мигания", "blink_speed", 0.2, 10.0, 0.2)
 
-        # --- Сугробы
         t = self.tab(nb, "Сугробы")
         self.check(t, "Снег и листья оседают на окнах и панели задач", "pile_enabled")
         self.scale(t, "Высота сугроба", "pile_max", 4, 40, 1)
@@ -2723,7 +2768,6 @@ class App:
         ttk.Button(r2, text="Очистить весь снег", command=lambda: self.engine.clear_snow()).pack(
             side="left", expand=True, fill="x", padx=(3, 0))
 
-        # --- Небо
         t = self.tab(nb, "Небо")
         self.section(t, "Северное сияние")
         self.check(t, "Включить сияние", "aurora_enabled")
@@ -2753,7 +2797,6 @@ class App:
         self.scale(t, "Размер саней", "santa_size", 0.6, 2.0, 0.1)
         ttk.Button(t, text="Запустить сани сейчас", command=lambda: self.engine.spawn_santa()).pack(fill="x", pady=4)
 
-        # --- Эффекты
         t = self.tab(nb, "Эффекты")
         self.section(t, "След за курсором")
         self.check(t, "Включить след", "trail_enabled")
@@ -2799,7 +2842,6 @@ class App:
         ])
         self.scale(t, "Размер, %", "tree_size", 40, 200, 5)
 
-        # --- Система
         t = self.tab(nb, "Система")
         self.auto_var = tk.BooleanVar(value=is_autostart())
         ttk.Checkbutton(t, text="Запускать вместе с Windows", variable=self.auto_var,
@@ -2807,8 +2849,8 @@ class App:
         self.check(t, "Автопауза при полноэкранных играх и видео", "pause_fullscreen")
         self.check(t, "Ставить эффекты на паузу при закрытии окна настроек", "pause_on_close")
         self.scale(t, "Кадров в секунду", "fps", 15, 35, 5)
-        self.hint(t, "«Сохранить» создаёт резервную копию настроек, а «Вернуть сохранение» "
-                     "позволяет в любой момент откатиться к сохранённым настройкам.")
+        self.hint(t, "По умолчанию при закрытии на крестик эффекты продолжают работать в фоне, "
+                     "а окно настроек открывается из системного трея.")
 
         bar = ttk.Frame(self.root)
         bar.pack(fill="x", padx=12, pady=(2, 12))

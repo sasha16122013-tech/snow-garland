@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import ctypes
+from ctypes import wintypes
 import json
 import math
 import os
@@ -8,7 +9,6 @@ import sys
 import time
 import traceback
 import tkinter as tk
-from ctypes import wintypes
 from tkinter import ttk, colorchooser
 
 try:
@@ -194,7 +194,6 @@ def relax(h, cap):
         ex = h[i] - (h[i - 1] + h[i + 1]) * 0.5 - 2.5
         if ex > 0: h[i] -= ex * 0.5; h[i - 1] += ex * 0.25; h[i + 1] += ex * 0.25
 
-# Функции автозапуска (исправлено)
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "SnowGarland"
 
@@ -603,7 +602,6 @@ class App:
         self.build_ui()
         self.ready = True
         
-        # ОПТИМИЗАЦИЯ ТРЕЯ: При нажатии на крестик (X) окно теперь не закрывается, а просто скрывается в фон!
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
         
         if autostart: self.hide_to_tray()
@@ -778,7 +776,6 @@ class App:
         else: self.ov.withdraw(); self.toggle_btn.configure(text="Показать эффекты")
 
     def hide_to_tray(self):
-        # Прячет окно настроек, но снег и гирлянда продолжают работать в фоне!
         self.root.withdraw()
 
     def quit(self):

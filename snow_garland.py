@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import ctypes
 from ctypes import wintypes
 import json
@@ -10,6 +11,13 @@ import time
 import traceback
 import tkinter as tk
 from tkinter import ttk, colorchooser
+
+# Принудительно задаем типы через явное обращение к библиотеке
+DWORD = wintypes.DWORD
+BOOL = wintypes.BOOL
+HWND = wintypes.HWND
+RECT = wintypes.RECT
+LPARAM = wintypes.LPARAM
 
 try:
     import winreg
@@ -24,14 +32,11 @@ except Exception:
     pass
 
 class MONITORINFO(ctypes.Structure):
-    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
-                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+    _fields_ = [("cbSize", DWORD), ("rcMonitor", RECT),
+                ("rcWork", RECT), ("dwFlags", DWORD)]
 
-WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-MONITORENUMPROC = ctypes.WINFUNCTYPE(
-    wintypes.BOOL, ctypes.c_void_p, ctypes.c_void_p,
-    ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
-
+WNDENUMPROC = ctypes.WINFUNCTYPE(BOOL, HWND, LPARAM)
+MONITORENUMPROC = ctypes.WINFUNCTYPE(BOOL, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(RECT), LPARAM)
 # Здесь исправлено использование типов: везде wintypes.XXX
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsIconic.argtypes = [wintypes.HWND]

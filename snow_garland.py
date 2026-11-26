@@ -45,7 +45,7 @@ user32.GetParent.restype = wintypes.HWND
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
 user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
 user32.EnumDisplayMonitors.argtypes = [ctypes.c_void_p, ctypes.c_void_p, MONITORENUMPROC, wintypes.LPARAM]
-dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, ctypes.DWORD, ctypes.c_void_p, ctypes.DWORD]
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x80000, 0x20, 0x80
@@ -74,8 +74,7 @@ def get_work_areas():
         mi = MONITORINFO()
         mi.cbSize = ctypes.sizeof(MONITORINFO)
         if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
-            w = mi.rcWork
-            res.append((w.left, w.top, w.right, w.bottom))
+            w = mi.rcWork; res.append((w.left, w.top, w.right, w.bottom))
         return True
     user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(cb), 0)
     res.sort()
@@ -170,25 +169,21 @@ def current_season(cfg):
     return SEASONS.get(cfg["season"], "winter")
 
 def blend(hex_color, f):
-    f = max(0.0, min(1.0, f))
-    h = hex_color.lstrip("#")
+    f = max(0.0, min(1.0, f)); h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return "#%02x%02x%02x" % (int(r * f), int(g * f), int(b * f))
 
 def mix(c1, c2, t):
-    a, b = c1.lstrip("#"), c2.lstrip("#")
-    out = []
+    a, b = c1.lstrip("#"), c2.lstrip("#"); out = []
     for i in (0, 2, 4):
         x, y = int(a[i:i+2], 16), int(b[i:i+2], 16)
         out.append(int(x + (y - x) * t))
     return "#%02x%02x%02x" % tuple(out)
 
 def shape_pts(shape, x, y, size, rot, wf):
-    cs, sn = math.cos(rot), math.sin(rot)
-    out = []
+    cs, sn = math.cos(rot), math.sin(rot); out = []
     for px, py in shape:
-        px *= wf
-        out += [x + (px * cs - py * sn) * size, y + (px * sn + py * cs) * size]
+        px *= wf; out += [x + (px * cs - py * sn) * size, y + (px * sn + py * cs) * size]
     return out
 
 def relax(h, cap):
@@ -197,10 +192,35 @@ def relax(h, cap):
         if h[i] > cap: h[i] = cap
     for i in range(1, n - 1):
         ex = h[i] - (h[i - 1] + h[i + 1]) * 0.5 - 2.5
-        if ex > 0:
-            h[i] -= ex * 0.5
-            h[i - 1] += ex * 0.25
-            h[i + 1] += ex * 0.25
+        if ex > 0: h[i] -= ex * 0.5; h[i - 1] += ex * 0.25; h[i + 1] += ex * 0.25
+
+# Функции автозапуска (исправлено)
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_NAME = "SnowGarland"
+
+def autostart_command():
+    if getattr(sys, "frozen", False): return '"%s" --autostart' % sys.executable
+    exe = sys.executable
+    if exe.lower().endswith("python.exe"): exe = exe[:-10] + "pythonw.exe"
+    return '"%s" "%s" --autostart' % (exe, os.path.abspath(sys.argv[0]))
+
+def is_autostart():
+    if not winreg: return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, APP_NAME); return True
+    except OSError: return False
+
+def set_autostart(on):
+    if not winreg: return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+            if on: winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, autostart_command())
+            else:
+                try: winreg.DeleteValue(k, APP_NAME)
+                except OSError: pass
+        return True
+    except OSError: return False
 
 class Engine:
     def __init__(self, canvas, cfg, geom):
@@ -243,8 +263,7 @@ class Engine:
 
     def make_particle(self, random_y):
         cv, cfg, s = self.cv, self.cfg, self.season
-        d = random.uniform(0.35, 1.0)
-        r = max(1.5, cfg["size"] * d)
+        d = random.uniform(0.35, 1.0); r = max(1.5, cfg["size"] * d)
         x = random.uniform(0, self.W); y = random.uniform(0, self.H) if random_y else -r * 4
         p = {"x": x, "y": y, "py": y, "r": r, "d": d, "ph": random.uniform(0, 6.3),
              "flip": random.uniform(0, 6.3), "rot": random.uniform(0, 6.3),
@@ -270,8 +289,7 @@ class Engine:
         self.place(p); return p
 
     def rebuild_particles(self):
-        self.cv.delete("flake")
-        n = int(self.cfg["density"])
+        self.cv.delete("flake"); n = int(self.cfg["density"])
         self.parts = [self.make_particle(True) for _ in range(n)]
         self.dirty_particles = False; self.raise_all()
 
@@ -366,8 +384,7 @@ class Engine:
         for i, (l, _t, r, b) in enumerate(self.work):
             surfs.append(("g%d" % i, l - self.vx, r - self.vx, b - self.vy, l - self.vx, r - l))
         self.win_rects = [(l - self.vx, t - self.vy, r - self.vx, b - self.vy) for (_h, l, t, r, b, _m) in wins]
-        self.win_keys = {w[0] for w in wins}
-        sig = tuple(surfs)
+        self.win_keys = {w[0] for w in wins}; sig = tuple(surfs)
         if sig != self.scene_sig or self.dirty_scene:
             self.scene_sig = sig; self.dirty_scene = False; self.surfaces = surfs
             info = {}
@@ -571,7 +588,7 @@ class Engine:
             cv.create_oval(cx - 2, y - 7, cx + 2, y - 3, fill="#B0BEC5", outline="", tags=t)
         bc = "#FF9800" if int(now * 6) % 2 == 0 else "#7A2E00"; bx = x - 12 * d
         cv.create_oval(bx - 3, y - 37, bx + 3, y - 31, fill=bc, outline="", tags=t)
-BG, PANEL, FG, MUTED, ACCENT = "#12162B", "#1D2345", "#E8ECFF", "#8C96C4", "#5CC8FF"
+        BG, PANEL, FG, MUTED, ACCENT = "#12162B", "#1D2345", "#E8ECFF", "#8C96C4", "#5CC8FF"
 
 class App:
     def __init__(self, autostart=False):
@@ -584,8 +601,12 @@ class App:
         self.build_overlay()
         self.engine = Engine(self.canvas, self.cfg, (self.vx, self.vy, self.W, self.H))
         self.build_ui()
-        self.ready = True; self.root.protocol("WM_DELETE_WINDOW", self.quit)
-        if autostart: self.root.iconify()
+        self.ready = True
+        
+        # ОПТИМИЗАЦИЯ ТРЕЯ: При нажатии на крестик (X) окно теперь не закрывается, а просто скрывается в фон!
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
+        
+        if autostart: self.hide_to_tray()
         self.tick()
 
     def build_overlay(self):
@@ -684,7 +705,7 @@ class App:
         ttk.Checkbutton(t4, text="Запускать вместе с Windows", variable=self.auto_var, command=self.toggle_autostart).pack(anchor="w", pady=4)
         self.scale(t4, "Кадров в секунду", "fps", 10, 60, 5)
         tk.Label(t4, bg=BG, fg=MUTED, justify="left", wraplength=400, font=("Segoe UI", 9),
-                 text="Настройки хранятся в %APPDATA%\\SnowGarland.").pack(anchor="w", pady=(14, 0))
+                 text="Закройте это окно на крестик — анимация останется работать в фоновом режиме!").pack(anchor="w", pady=(14, 0))
 
         bar = ttk.Frame(self.root); bar.pack(fill="x", padx=12, pady=(2, 12))
         ttk.Button(bar, text="Сохранить", style="Accent.TButton", command=lambda: save_cfg(self.cfg)).pack(side="left", padx=3)
@@ -692,7 +713,7 @@ class App:
         self.toggle_btn = ttk.Button(bar, text="Скрыть эффекты", command=self.toggle)
         self.toggle_btn.pack(side="left", padx=3)
         ttk.Button(bar, text="Выход", command=self.quit).pack(side="right", padx=3)
-        ttk.Button(bar, text="Свернуть", command=self.root.iconify).pack(side="right", padx=3)
+        ttk.Button(bar, text="В фоновый режим", command=self.hide_to_tray).pack(side="right", padx=3)
 
     def scale(self, parent, text, key, lo, hi, step):
         f = ttk.Frame(parent); f.pack(fill="x", pady=3)
@@ -756,6 +777,10 @@ class App:
         if self.visible: self.ov.deiconify(); self.toggle_btn.configure(text="Скрыть эффекты")
         else: self.ov.withdraw(); self.toggle_btn.configure(text="Показать эффекты")
 
+    def hide_to_tray(self):
+        # Прячет окно настроек, но снег и гирлянда продолжают работать в фоне!
+        self.root.withdraw()
+
     def quit(self):
         save_cfg(self.cfg); self.root.destroy()
 
@@ -773,7 +798,7 @@ def main():
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _mutex = kernel32.CreateMutexW(None, False, "SnowGarland_single_instance")
     if ctypes.get_last_error() == 183:
-        user32.MessageBoxW(0, "Программа уже запущена. Её окно — на панели задач.", "Времена года и гирлянда", 0x40)
+        user32.MessageBoxW(0, "Программа уже запущена. Её окно — в фоновом режиме.", "Времена года и гирлянда", 0x40)
         return
     app = App(autostart="--autostart" in sys.argv)
     app.root.mainloop()

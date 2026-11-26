@@ -1,23 +1,22 @@
 import ctypes
 from ctypes import wintypes
 import random
-import sys
-
-from PyQt6.QtCore import QPointF, Qt, QTimer
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
-from PyQt6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+import tkinter as tk
 
 user32 = ctypes.windll.user32
+gdi32 = ctypes.windll.gdi32
+
+GWL_EXSTYLE = -20
+WS_EX_LAYERED = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
+WS_EX_TOPMOST = 0x00000008
+WS_EX_TOOLWINDOW = 0x00000080
+LWA_COLORKEY = 0x00000001
+
+TRANSPARENT_KEY = "#010203"
 
 
-def get_active_window_rect(ignore_title: str = "Winter Vibe Settings"):
+def get_active_window_rect(ignore_title: str = "Winter Vibe"):
     """Возвращает координаты (left, top, right, bottom) активного окна через Windows API."""
     hwnd = user32.GetForegroundWindow()
     if not hwnd or not user32.IsWindowVisible(hwnd):
@@ -35,86 +34,171 @@ def get_active_window_rect(ignore_title: str = "Winter Vibe Settings"):
     if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return None
 
-    # Игнорируем свёрнутые окна с координатами около -32000
     if rect.left < -10000 or rect.top < -10000:
         return None
 
     return (rect.left, rect.top, rect.right, rect.bottom)
 
 
-class DesktopOverlay(QWidget):
-    """Прозрачное окно поверх всего экрана, пропускающее клики мыши."""
+class SnowGarlandApp:
+    """Приложение на стандартном tkinter без внешних зависимостей."""
 
     def __init__(self):
-        super().__init__()
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowTransparentForInput
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-        screen = QApplication.primaryScreen().geometry()
-        self.setGeometry(screen)
-        self.screen_w = screen.width()
-        self.screen_h = screen.height()
-        self.taskbar_height = 48
+        self.root = tk.Tk()
+        self.root.title("Winter Vibe")
+        self.root.geometry("310x215+120+120")
+        self.root.resizable(False, False)
+        self.root.attributes("-topmost", True)
+        self.root.configure(bg="#1e1e2e")
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
         # Состояния переключателей
-        self.enable_full_snow = False
-        self.enable_taskbar_snow = False
-        self.enable_garland = False
+        self.full_snow_var = tk.BooleanVar(value=False)
+        self.taskbar_snow_var = tk.BooleanVar(value=False)
+        self.garland_var = tk.BooleanVar(value=False)
+
+        self._build_menu()
+
+        # Создаём прозрачное оверлей-окно поверх всего экрана
+        self.overlay = tk.Toplevel(self.root)
+        self.overlay.overrideredirect(True)
+        self.overlay.attributes("-topmost", True)
+        self.overlay.configure(bg=TRANSPARENT_KEY)
+
+        self.screen_w = self.root.winfo_screenwidth()
+        self.screen_h = self.root.winfo_screenheight()
+        self.taskbar_height = 48
+        self.overlay.geometry(f"{self.screen_w}x{self.screen_h}+0+0")
+
+        self.canvas = tk.Canvas(
+            self.overlay,
+            width=self.screen_w,
+            height=self.screen_h,
+            bg=TRANSPARENT_KEY,
+            highlightthickness=0,
+        )
+        self.canvas.pack(fill="both", expand=True)
+
+        # Делаем фон прозрачным по color-key и пропускаем клики мыши сквозь оверлей
+        self.overlay.update_idletasks()
+        self._apply_click_through()
 
         # Частицы снега
-        self.snowflakes = [self._create_flake() for _ in range(120)]
-        self.taskbar_flakes = [self._create_taskbar_flake() for _ in range(70)]
+        self.snowflakes = [self._make_flake(taskbar=False) for _ in range(110)]
+        self.taskbar_flakes = [self._make_flake(taskbar=True) for _ in range(65)]
 
-        # Переменные для гирлянды
-        self.active_rect = None
         self.blink_phase = 0
-        self.garland_colors = [
-            QColor(255, 50, 50),   # Красный
-            QColor(50, 255, 100),  # Зелёный
-            QColor(50, 150, 255),  # Синий
-            QColor(255, 220, 50),  # Жёлтый
-            QColor(220, 80, 255),  # Фиолетовый
-        ]
+        self.garland_colors = ["#ff3b3b", "#38ff7a", "#3b9eff", "#ffd83b", "#d95cff"]
 
-        # Таймер анимации (~60 FPS)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_animation)
-        self.timer.start(16)
+        self._tick_animation()
+        self._tick_blink()
 
-        # Таймер мигания гирлянды
-        self.blink_timer = QTimer(self)
-        self.blink_timer.timeout.connect(self.update_blink)
-        self.blink_timer.start(500)
+    def _apply_click_through(self):
+        """Настраивает прозрачность фона и пропуск кликов через WinAPI."""
+        hwnd = user32.GetParent(self.overlay.winfo_id())
+        if not hwnd:
+            hwnd = self.overlay.winfo_id()
 
-    def _create_flake(self):
+        ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        new_style = (
+            ex_style
+            | WS_EX_LAYERED
+            | WS_EX_TRANSPARENT
+            | WS_EX_TOPMOST
+            | WS_EX_TOOLWINDOW
+        )
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+
+        # Преобразуем HEX-цвет #RRGGBB в COLORREF (0x00BBGGRR)
+        r = int(TRANSPARENT_KEY[1:3], 16)
+        g = int(TRANSPARENT_KEY[3:5], 16)
+        b = int(TRANSPARENT_KEY[5:7], 16)
+        color_ref = (b << 16) | (g << 8) | r
+        user32.SetLayeredWindowAttributes(hwnd, color_ref, 0, LWA_COLORKEY)
+
+    def _build_menu(self):
+        title_lbl = tk.Label(
+            self.root,
+            text="❄️ Winter Desktop Vibe",
+            bg="#1e1e2e",
+            fg="#89b4fa",
+            font=("Segoe UI", 14, "bold"),
+        )
+        title_lbl.pack(anchor="w", padx=16, pady=(14, 8))
+
+        chk_opts = {
+            "bg": "#1e1e2e",
+            "fg": "#cdd6f4",
+            "selectcolor": "#313244",
+            "activebackground": "#1e1e2e",
+            "activeforeground": "#ffffff",
+            "font": ("Segoe UI", 11),
+            "bd": 0,
+            "highlightthickness": 0,
+        }
+
+        tk.Checkbutton(
+            self.root,
+            text="Снег по всему рабочему столу",
+            variable=self.full_snow_var,
+            **chk_opts,
+        ).pack(anchor="w", padx=16, pady=4)
+
+        tk.Checkbutton(
+            self.root,
+            text="Снег на панели задач (Винда)",
+            variable=self.taskbar_snow_var,
+            **chk_opts,
+        ).pack(anchor="w", padx=16, pady=4)
+
+        tk.Checkbutton(
+            self.root,
+            text="Гирлянда на активном окне",
+            variable=self.garland_var,
+            **chk_opts,
+        ).pack(anchor="w", padx=16, pady=4)
+
+        btn_exit = tk.Button(
+            self.root,
+            text="Закрыть приложение",
+            bg="#f38ba8",
+            fg="#11111b",
+            activebackground="#eba0ac",
+            activeforeground="#11111b",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padx=12,
+            pady=6,
+            command=self.quit_app,
+        )
+        btn_exit.pack(pady=(12, 10))
+
+    def _make_flake(self, taskbar: bool):
+        if taskbar:
+            return {
+                "x": random.uniform(0, self.screen_w),
+                "y": random.uniform(self.screen_h - 140, self.screen_h - self.taskbar_height),
+                "r": random.uniform(1.5, 3.2),
+                "speed": random.uniform(0.9, 2.2),
+                "drift": random.uniform(-0.5, 0.5),
+            }
         return {
             "x": random.uniform(0, self.screen_w),
             "y": random.uniform(-self.screen_h, 0),
-            "r": random.uniform(2, 5),
-            "speed": random.uniform(1.5, 4.0),
+            "r": random.uniform(2.0, 4.5),
+            "speed": random.uniform(1.5, 3.8),
             "drift": random.uniform(-0.8, 0.8),
         }
 
-    def _create_taskbar_flake(self):
-        return {
-            "x": random.uniform(0, self.screen_w),
-            "y": random.uniform(self.screen_h - 150, self.screen_h - self.taskbar_height),
-            "r": random.uniform(1.5, 3.5),
-            "speed": random.uniform(0.8, 2.2),
-            "drift": random.uniform(-0.5, 0.5),
-        }
-
-    def update_blink(self):
+    def _tick_blink(self):
         self.blink_phase = (self.blink_phase + 1) % len(self.garland_colors)
+        self.root.after(500, self._tick_blink)
 
-    def update_animation(self):
-        if self.enable_full_snow:
+    def _tick_animation(self):
+        self.canvas.delete("all")
+
+        # 1. Снег по всему экрану
+        if self.full_snow_var.get():
             for f in self.snowflakes:
                 f["y"] += f["speed"]
                 f["x"] += f["drift"]
@@ -122,166 +206,84 @@ class DesktopOverlay(QWidget):
                     f["y"] = random.uniform(-20, -5)
                     f["x"] = random.uniform(0, self.screen_w)
 
-        if self.enable_taskbar_snow:
+                r = f["r"]
+                self.canvas.create_oval(
+                    f["x"] - r,
+                    f["y"] - r,
+                    f["x"] + r,
+                    f["y"] + r,
+                    fill="#ffffff",
+                    outline="",
+                )
+
+        # 2. Снег на панели задач Windows
+        if self.taskbar_snow_var.get():
+            top_bar = self.screen_h - self.taskbar_height
+            self.canvas.create_rectangle(
+                0,
+                top_bar,
+                self.screen_w,
+                top_bar + 4,
+                fill="#ffffff",
+                outline="",
+            )
             for f in self.taskbar_flakes:
                 f["y"] += f["speed"]
                 f["x"] += f["drift"]
                 if f["y"] > self.screen_h:
-                    f["y"] = self.screen_h - random.uniform(90, 140)
+                    f["y"] = self.screen_h - random.uniform(85, 135)
                     f["x"] = random.uniform(0, self.screen_w)
 
-        if self.enable_garland:
-            self.active_rect = get_active_window_rect("Winter Vibe Settings")
-        else:
-            self.active_rect = None
+                r = f["r"]
+                self.canvas.create_oval(
+                    f["x"] - r,
+                    f["y"] - r,
+                    f["x"] + r,
+                    f["y"] + r,
+                    fill="#ffffff",
+                    outline="",
+                )
 
-        self.update()
+        # 3. Гирлянда на активном окне
+        if self.garland_var.get():
+            rect = get_active_window_rect("Winter Vibe")
+            if rect:
+                left, top, right, _ = rect
+                left = max(0, left)
+                right = min(self.screen_w, right)
+                top = max(0, top)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                if right - left > 100:
+                    self.canvas.create_line(
+                        left + 10,
+                        top + 2,
+                        right - 10,
+                        top + 2,
+                        fill="#262626",
+                        width=2,
+                    )
+                    spacing = 35
+                    idx = 0
+                    for x in range(left + 20, right - 20, spacing):
+                        color = self.garland_colors[
+                            (idx + self.blink_phase) % len(self.garland_colors)
+                        ]
+                        self.canvas.create_oval(
+                            x - 5,
+                            top + 2,
+                            x + 5,
+                            top + 13,
+                            fill=color,
+                            outline="#1a1a1a",
+                        )
+                        idx += 1
 
-        # 1. Снег по всему экрану
-        if self.enable_full_snow:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(255, 255, 255, 210)))
-            for f in self.snowflakes:
-                painter.drawEllipse(QPointF(f["x"], f["y"]), f["r"], f["r"])
+        self.root.after(16, self._tick_animation)
 
-        # 2. Снег на панели задач Windows
-        if self.enable_taskbar_snow:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(255, 255, 255, 160)))
-            painter.drawRect(0, self.screen_h - self.taskbar_height, self.screen_w, 4)
-
-            painter.setBrush(QBrush(QColor(255, 255, 255, 230)))
-            for f in self.taskbar_flakes:
-                painter.drawEllipse(QPointF(f["x"], f["y"]), f["r"], f["r"])
-
-        # 3. Гирлянда на верхней рамке активного окна
-        if self.enable_garland and self.active_rect:
-            left, top, right, _ = self.active_rect
-            left = max(0, left)
-            right = min(self.screen_w, right)
-            top = max(0, top)
-
-            if right - left > 100:
-                painter.setPen(QPen(QColor(30, 30, 30, 200), 2))
-                painter.drawLine(left + 10, top + 2, right - 10, top + 2)
-
-                spacing = 35
-                idx = 0
-                for x in range(left + 20, right - 20, spacing):
-                    color = self.garland_colors[
-                        (idx + self.blink_phase) % len(self.garland_colors)
-                    ]
-
-                    glow = QColor(color)
-                    glow.setAlpha(70)
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.setBrush(QBrush(glow))
-                    painter.drawEllipse(QPointF(x, top + 8), 11, 11)
-
-                    painter.setBrush(QBrush(color))
-                    painter.drawEllipse(QPointF(x, top + 8), 4.5, 6)
-                    idx += 1
-
-
-class ControlMenu(QWidget):
-    """Окно меню с переключателями эффектов."""
-
-    def __init__(self, overlay: DesktopOverlay):
-        super().__init__()
-        self.overlay = overlay
-        self.setWindowTitle("Winter Vibe Settings")
-        self.setFixedSize(310, 230)
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
-
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                font-family: 'Segoe UI', sans-serif;
-                font-size: 14px;
-            }
-            QLabel#title {
-                font-size: 17px;
-                font-weight: bold;
-                color: #89b4fa;
-                margin-bottom: 5px;
-            }
-            QCheckBox {
-                spacing: 10px;
-                padding: 6px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 2px solid #585b70;
-                background: #313244;
-            }
-            QCheckBox::indicator:checked {
-                background: #a6e3a1;
-                border-color: #a6e3a1;
-            }
-            QPushButton {
-                background-color: #f38ba8;
-                color: #11111b;
-                font-weight: bold;
-                border: none;
-                border-radius: 6px;
-                padding: 8px;
-                margin-top: 10px;
-            }
-            QPushButton:hover {
-                background-color: #eba0ac;
-            }
-        """)
-
-        layout = QVBoxLayout()
-
-        title = QLabel("❄️ Winter Desktop Vibe")
-        title.setObjectName("title")
-        layout.addWidget(title)
-
-        self.cb_full_snow = QCheckBox("Снег по всему рабочему столу")
-        self.cb_full_snow.toggled.connect(self.toggle_full_snow)
-        layout.addWidget(self.cb_full_snow)
-
-        self.cb_taskbar_snow = QCheckBox("Снег на панели задач (Винда)")
-        self.cb_taskbar_snow.toggled.connect(self.toggle_taskbar_snow)
-        layout.addWidget(self.cb_taskbar_snow)
-
-        self.cb_garland = QCheckBox("Гирлянда на активном окне")
-        self.cb_garland.toggled.connect(self.toggle_garland)
-        layout.addWidget(self.cb_garland)
-
-        btn_exit = QPushButton("Закрыть приложение")
-        btn_exit.clicked.connect(QApplication.instance().quit)
-        layout.addWidget(btn_exit)
-
-        self.setLayout(layout)
-
-    def toggle_full_snow(self, checked: bool):
-        self.overlay.enable_full_snow = checked
-
-    def toggle_taskbar_snow(self, checked: bool):
-        self.overlay.enable_taskbar_snow = checked
-
-    def toggle_garland(self, checked: bool):
-        self.overlay.enable_garland = checked
-
-    def closeEvent(self, event):
-        QApplication.instance().quit()
+    def quit_app(self):
+        self.root.destroy()
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    overlay = DesktopOverlay()
-    overlay.show()
-
-    menu = ControlMenu(overlay)
-    menu.show()
-
-    sys.exit(app.exec())
+    app = SnowGarlandApp()
+    app.root.mainloop()

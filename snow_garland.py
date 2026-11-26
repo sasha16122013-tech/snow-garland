@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Времена года на рабочем столе: снег, листья, конфетти, пузыри, дождь, звёзды...
+Времена года на рабочем столе: снег, метель, листья, конфетти, пузыри, дождь, звёзды...
 Гирлянда на окнах, сугробы с физикой, снеговики, уборочная машина по всем мониторам,
-северное сияние, метеоры, сани Санты, сосульки с капелью, вихрь курсора и многое другое.
+северное сияние, метеоры, сани Санты, сосульки с капелью, ёлка с мишурой и подарками.
 
 Запуск: python snow_garland.py   (или pythonw snow_garland.py - без консоли)
 Нужен только Python 3.8+ для Windows. Сторонние библиотеки не нужны.
@@ -13,6 +13,7 @@ import json
 import math
 import os
 import random
+import shutil
 import sys
 import threading
 import time
@@ -201,30 +202,40 @@ def visible_top_edges(windows, skip_max):
     return segs
 
 
-# ---------------------------------------------------------------- Настройки
+# ---------------------------------------------------------------- Настройки и сохранение
 APPDATA = os.environ.get("APPDATA") or os.path.dirname(os.path.abspath(sys.argv[0]))
 CONFIG_DIR = os.path.join(APPDATA, "SnowGarland")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+BACKUP_PATH = os.path.join(CONFIG_DIR, "config_backup.json")
 LOG_PATH = os.path.join(CONFIG_DIR, "error.log")
 
-KINDS = [("snow", "Снежинки"), ("leaf", "Осенние листья"),
+KINDS = [("snow", "Снежинки"), ("blizzard", "Метель"), ("leaf", "Осенние листья"),
          ("spring", "Весенние листья и лепестки"), ("firefly", "Светлячки"),
          ("confetti", "Конфетти"), ("bubble", "Пузыри"),
          ("heart", "Сердечки"), ("star", "Падающие звёзды"),
          ("rain", "Дождь"), ("lantern", "Небесные фонарики")]
-KIND_FACTOR = {"firefly": 0.4, "lantern": 0.12, "bubble": 0.4, "star": 0.25,
-               "heart": 0.5, "confetti": 0.7, "rain": 0.9}
+KIND_FACTOR = {"firefly": 0.4, "blizzard": 0.85, "lantern": 0.12, "bubble": 0.4,
+               "star": 0.25, "heart": 0.5, "confetti": 0.7, "rain": 0.9}
 SEASON_KINDS = {"winter": ["snow"], "autumn": ["leaf"],
                 "spring": ["spring"], "summer": ["firefly"]}
+
+COLOR_PALETTES = {
+    "Классика": ["#FF3B30", "#FFD60A", "#34C759", "#0A84FF"],
+    "Неон": ["#FF2A85", "#00F5D4", "#9B5DE5", "#FEE440"],
+    "Золото и лёд": ["#FFD166", "#5CC8FF", "#FFFFFF", "#38BDF8"],
+    "Осень": ["#D84315", "#EF6C00", "#F9A825", "#8D6E63"],
+    "Весна": ["#FF8FAB", "#FB6F92", "#80ED99", "#FFE5EC"],
+    "Киберпанк": ["#00F0FF", "#FF0055", "#7B2CBF", "#FFBE0B"],
+}
 
 DEFAULTS = {
     "season": "Авто", "fall_mode": "По сезону",
     "city_name": "Днепр", "city_weather_status": "Не задан",
-    "k_snow": True, "k_leaf": False, "k_spring": False, "k_firefly": False,
-    "k_confetti": False, "k_bubble": False, "k_heart": False, "k_star": False,
-    "k_rain": False, "k_lantern": False,
+    "k_snow": True, "k_blizzard": False, "k_leaf": False, "k_spring": False,
+    "k_firefly": False, "k_confetti": False, "k_bubble": False, "k_heart": False,
+    "k_star": False, "k_rain": False, "k_lantern": False,
     "snow_style": "Все вместе", "snow_color": "#FFFFFF",
-    "density": 65, "speed": 1.0, "size": 5,
+    "density": 60, "speed": 1.0, "size": 5,
     "wind": 0.0, "wind_dir": "Авто", "wind_strength": 1.0,
     "wobble": 1.0,
     "only_desktop": False,
@@ -247,7 +258,7 @@ DEFAULTS = {
     "trail_size": 1.0, "trail_life": 1.0,
     "aurora_enabled": False, "aurora_when": "Всегда", "aurora_palette": "Зелёное",
     "aurora_height": 28, "aurora_speed": 0.8, "aurora_power": 1, "aurora_behind": True,
-    "stars_enabled": False, "stars_count": 60, "stars_height": 50, "stars_twinkle": 1.0,
+    "stars_enabled": False, "stars_count": 50, "stars_height": 50, "stars_twinkle": 1.0,
     "sky_body": "Выкл", "sky_corner": "Правый верх", "sky_size": 70,
     "meteor_enabled": False, "meteor_every": 8, "meteor_len": 1.0,
     "santa_enabled": False, "santa_every": 25, "santa_size": 1.0,
@@ -269,13 +280,14 @@ SCENE_KEYS = {"garland_enabled", "garland_winter_only", "skip_maximized",
               "garland_gap", "bulb_size", "garland_width", "garland_wire",
               "color1", "color2", "color3", "color4", "pile_enabled",
               "drip_enabled", "drip_len"}
-PARTICLE_KEYS = {"season", "density", "size", "snow_color", "fall_mode", "snow_style"}
+PARTICLE_KEYS = {"season", "density", "size", "snow_color", "fall_mode", "snow_style",
+                 "blizzard_every", "blizzard_len", "blizzard_power"}
 RAISE_ORDER = ("e_stars", "e_aurora", "e_sky", "e_tree", "pile", "snowman",
                "garland", "e_neon", "e_edge", "e_halo", "flake", "fx", "plow", "ball")
 
 KEY = "#010203"
 BIN = 6
-FX_LIMIT = 140
+FX_LIMIT = 120
 
 SEASONS = {"Зима": "winter", "Осень": "autumn", "Весна": "spring", "Лето": "summer"}
 SEASON_TITLE = {"winter": "❄  Зима", "autumn": "❦  Осень",
@@ -292,8 +304,8 @@ SPARK_COL = ["#FFE066", "#FFB347", "#FFFFFF", "#FF8C42"]
 DUST_COL = ["#FFF3B0", "#C8B6FF", "#BDE0FE", "#FFC8DD"]
 FIRE_COL = ["#FFD166", "#FF9F1C", "#FF5A1F", "#E63946"]
 FW_COL = ["#FF5C8A", "#FFD166", "#06D6A0", "#4CC9F0", "#C77DFF", "#FF9F1C"]
-MAT_COLOR = {"snow": "#F2F7FF", "leaf": "#B4631C", "spring": "#7CB342",
-             "confetti": "#FFC24B", "heart": "#FF6F91"}
+MAT_COLOR = {"snow": "#F2F7FF", "blizzard": "#E6F2FF", "leaf": "#B4631C",
+             "spring": "#7CB342", "confetti": "#FFC24B", "heart": "#FF6F91"}
 AURORA_PAL = {"Зелёное": ["#39FF8A", "#2EE6C2", "#7CFFB2"],
               "Фиолетовое": ["#B07CFF", "#7C8CFF", "#E27CFF"],
               "Розовое": ["#FF7CC8", "#FF9E7C", "#C77CFF"]}
@@ -316,31 +328,50 @@ BLINK_MODES = [
 ]
 
 
-def load_cfg():
+def _parse_cfg_dict(data):
     cfg = dict(DEFAULTS)
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for k in DEFAULTS:
-            if k in data and type(data[k]) == type(DEFAULTS[k]):
-                cfg[k] = data[k]
-            elif k in data and isinstance(DEFAULTS[k], float) and \
-                    isinstance(data[k], int) and not isinstance(data[k], bool):
-                cfg[k] = float(data[k])
-        if cfg.get("tree_corner") in ("Правый низ", "Левый низ"):
-            cfg["tree_corner"] = "Правый монитор (правый низ)"
-    except Exception:
-        pass
+    for k in DEFAULTS:
+        if k in data and type(data[k]) == type(DEFAULTS[k]):
+            cfg[k] = data[k]
+        elif k in data and isinstance(DEFAULTS[k], float) and \
+                isinstance(data[k], int) and not isinstance(data[k], bool):
+            cfg[k] = float(data[k])
+    if cfg.get("tree_corner") in ("Правый низ", "Левый низ"):
+        cfg["tree_corner"] = "Правый монитор (правый низ)"
     return cfg
 
 
-def save_cfg(cfg):
+def load_cfg(path=CONFIG_PATH):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return _parse_cfg_dict(data)
+    except Exception:
+        return dict(DEFAULTS)
+
+
+def save_cfg(cfg, make_backup=True):
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
+        if make_backup and os.path.exists(CONFIG_PATH):
+            try:
+                shutil.copy2(CONFIG_PATH, BACKUP_PATH)
+            except Exception:
+                pass
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def has_backup():
+    return os.path.exists(BACKUP_PATH)
+
+
+def load_backup_cfg():
+    if not has_backup():
+        return None
+    return load_cfg(BACKUP_PATH)
 
 
 def log_error(name=""):
@@ -573,7 +604,7 @@ class TrayIcon:
         self.active = False
 
     def _show_menu(self):
-        menu = tk.Menu(self.root, tearoff=0, bg="#1D2345", fg="#E8ECFF",
+        menu = tk.Menu(self.root, tearoff=0, bg="#181D38", fg="#F1F4FF",
                        activebackground="#5CC8FF", activeforeground="#0B1020")
         menu.add_command(label="Открыть настройки", command=self.on_open)
         menu.add_command(label="Скрыть / показать эффекты", command=self.on_toggle)
@@ -716,7 +747,7 @@ class Engine:
             return
         if self.check_fullscreen_pause():
             return
-        if now - self.last_win_scan >= 0.16 or self.dirty_scene:
+        if now - self.last_win_scan >= 0.22 or self.dirty_scene:
             self.last_win_scan = now
             self.guard("scene", self.refresh_scene, now)
         if self.effect_on.get("neon"):
@@ -763,7 +794,7 @@ class Engine:
     def refresh_scene(self, now):
         cfg = self.cfg
         wins = self.get_windows()
-        if now - self.last_work > 3.0:
+        if now - self.last_work > 3.5:
             self.work = self.get_work() or [(self.vx, self.vy, self.vx + self.W, self.vy + self.H)]
             self.monitors = self.get_monitors() or self.work
             self.last_work = now
@@ -793,7 +824,7 @@ class Engine:
             prev = self.geo.get(key)
             if prev and key in self.piles:
                 dx, dy = g[0] - prev[0], g[1] - prev[1]
-                if abs(dx) + abs(dy) >= 12:
+                if abs(dx) + abs(dy) >= 14:
                     self.shed(key, g, dx, dy)
         self.geo = new_geo
 
@@ -856,14 +887,14 @@ class Engine:
         y = d["top"]
         rnd = random.Random(key)
         for (a, b) in d["spans"]:
-            step = 34
+            step = 36
             x = a + 14
             while x < b - 14:
                 L = rnd.uniform(max_len * 0.45, max_len)
                 w = rnd.uniform(2.2, 3.6)
                 cv.create_polygon(x - w, y, x + w, y, x, y + L,
                                   fill="#D6F0FF", outline="#89C9FF", tags=tg)
-                x += step + rnd.randint(-4, 10)
+                x += step + rnd.randint(-2, 10)
 
     def update_drips(self):
         if not self.cfg.get("drip_enabled", False):
@@ -882,7 +913,7 @@ class Engine:
             return
         x = random.uniform(a + 10, b - 10)
         y = d["top"] + float(self.cfg.get("drip_len", 18))
-        self.spawn_fx(x, y, 0.0, 1.8, 36, "#BFE9FF", 1.7, g=0.3, drag=0.99)
+        self.spawn_fx(x, y, 0.0, 1.8, 34, "#BFE9FF", 1.7, g=0.3, drag=0.99)
 
     def collapse(self, key):
         g = self.geo.pop(key, None)
@@ -890,7 +921,7 @@ class Engine:
         if g and p:
             left, top, width = g
             h = p["h"]
-            stride = max(1, len(h) // 60)
+            stride = max(1, len(h) // 45)
             for i in range(0, len(h), stride):
                 if h[i] > 0.8:
                     mat = p["m"][i] or "snow"
@@ -916,7 +947,7 @@ class Engine:
         n = 0
         for i in range(len(h)):
             if h[i] > 0.8 and random.random() < frac * 0.5:
-                if n < 16:
+                if n < 12:
                     self.spawn_chunk(left + i * BIN, top - h[i], -dx * 0.25 + random.uniform(-1.5, 1.5),
                                      -abs(dy) * 0.15 - random.uniform(0.5, 2.5),
                                      m[i] or "snow", random.uniform(1.4, 2.6))
@@ -925,7 +956,7 @@ class Engine:
         self.pile_dirty = True
 
     def spawn_chunk(self, x, y, vx, vy, mat, r):
-        if len(self.chunks) >= 120:
+        if len(self.chunks) >= 100:
             return
         i = self.cv.create_oval(x - r, y - r, x + r, y + r, fill=MAT_COLOR.get(mat, "#FFFFFF"),
                                 outline="", tags="flake")
@@ -980,7 +1011,7 @@ class Engine:
         now = time.time() if now is None else now
         self.bliz = {"t0": now, "len": max(5.0, float(self.cfg["blizzard_len"]))}
         self.bliz_dir = random.choice((-1, 1))
-        for _ in range(int(70 * self.cfg["blizzard_power"])):
+        for _ in range(int(55 * self.cfg["blizzard_power"])):
             self.parts.append(self.make_particle("snow", True, True))
         self.raise_all()
 
@@ -991,7 +1022,7 @@ class Engine:
             every = cfg["blizzard_every"]
             if every > 0:
                 if self.next_bliz is None:
-                    self.next_bliz = now + every * 60 * random.uniform(0.6, 1.4)
+                    self.next_bliz = now + every * 60 * random.uniform(0.75, 1.25)
                 elif now >= self.next_bliz:
                     self.start_blizzard(now)
                     self.next_bliz = None
@@ -1022,10 +1053,19 @@ class Engine:
         n = int(self.cfg["density"])
         self.parts = []
         for k in ks:
-            for _ in range(max(1, int(n / len(ks) * KIND_FACTOR.get(k, 1.0)))):
-                self.parts.append(self.make_particle(k, True))
-        if self.bliz:
-            for _ in range(int(70 * self.cfg["blizzard_power"])):
+            actual_k = "snow" if k == "blizzard" else k
+            is_storm = (k == "blizzard")
+            cnt = max(1, int(n / len(ks) * KIND_FACTOR.get(k, 1.0)))
+            if is_storm:
+                cnt = int(cnt * max(1.0, float(self.cfg["blizzard_power"])))
+                if self.bliz is None:
+                    self.bliz = {"t0": time.time(), "len": max(5.0, float(self.cfg["blizzard_len"]))}
+                    self.bliz_dir = random.choice((-1, 1))
+                    self.bliz_f = 1.0
+            for _ in range(cnt):
+                self.parts.append(self.make_particle(actual_k, True, is_storm))
+        if self.bliz and "k_blizzard" not in ks:
+            for _ in range(int(55 * self.cfg["blizzard_power"])):
                 self.parts.append(self.make_particle("snow", True, True))
         self.dirty_particles = False
         self.raise_all()
@@ -1050,7 +1090,8 @@ class Engine:
         if kind == "snow":
             col = blend(cfg["snow_color"], 0.55 + 0.45 * d)
             style = cfg["snow_style"]
-            p.update(tv=0.6 + 1.5 * d, col=col)
+            p.update(tv=(1.1 if storm else 0.6) + 1.5 * d, col=col,
+                     sway=(1.6 if storm else 0.6))
             if style == "Точки" or (style == "Все вместе" and random.random() < 0.35):
                 p["ids"] = [cv.create_oval(0, 0, 1, 1, fill=col, outline="", tags="flake")]
             else:
@@ -1147,10 +1188,10 @@ class Engine:
             rad = float(cfg["cursor_radius"])
             rad2 = rad * rad
             force = cfg["cursor_force"]
-        storm_on = self.bliz is not None
+        storm_on = (self.bliz is not None) or cfg.get("k_blizzard", False)
         dead = []
         for p in self.parts:
-            if p["storm"] and not storm_on and random.random() < 0.05:
+            if p["storm"] and not storm_on and random.random() < 0.06:
                 dead.append(p)
                 continue
             p["ph"] += 0.06
@@ -1508,14 +1549,14 @@ class Engine:
         if not pos:
             return
         sx, sy = pos
-        for _ in range(12):
+        for _ in range(10):
             self.spawn_chunk(
                 sx + random.uniform(-14, 14),
                 sy - random.uniform(4, 34 * self.cfg["snowman_size"]),
                 cvx * 0.3 + random.uniform(-3.0, 3.0),
                 -random.uniform(1.5, 4.5) + cvy * 0.15,
                 "snow",
-                random.uniform(1.8, 3.2),
+                random.uniform(1.8, 3.0),
             )
         self.dirty_snowmen = True
 
@@ -2018,13 +2059,13 @@ class Engine:
 
     def firework_burst(self, x, y, col):
         size = self.cfg["fw_size"]
-        n = min(45, int(28 * size))
+        n = min(40, int(24 * size))
         ring = random.random() < 0.3
         col2 = random.choice(FW_COL)
         for i in range(n):
             a = (i / n) * 6.283 if ring else random.uniform(0, 6.283)
             s = (3.0 if ring else random.uniform(1.2, 4.8)) * size
-            self.spawn_fx(x, y, math.cos(a) * s, math.sin(a) * s, random.randint(24, 38),
+            self.spawn_fx(x, y, math.cos(a) * s, math.sin(a) * s, random.randint(22, 34),
                           col if random.random() < 0.7 else col2, 1.8, g=0.06, drag=0.96)
 
     def effect_enabled(self, name):
@@ -2062,8 +2103,8 @@ class Engine:
                     self.cfg[name + "_enabled"] = False
 
     def build_aurora(self):
-        cv, _cfg = self.cv, self.cfg
-        self.aur_cols = max(12, min(22, int(self.W // 95)))
+        cv = self.cv
+        self.aur_cols = max(12, min(20, int(self.W // 100)))
         self.aur = []
         for _b in range(2):
             cols = []
@@ -2282,33 +2323,72 @@ class Engine:
         place_right = "правый низ" in corner.lower() or corner == "Правый низ"
         l, _t, r, b = mon
         by = b - self.vy
-        Tw, Th = 150 * s, 230 * s
-        cx = (r - self.vx - 40 * s - Tw / 2) if place_right else (l - self.vx + 40 * s + Tw / 2)
+        Tw, Th = 156 * s, 238 * s
+        cx = (r - self.vx - 44 * s - Tw / 2) if place_right else (l - self.vx + 44 * s + Tw / 2)
         tg = "e_tree"
-        cv.create_rectangle(cx - 9 * s, by - Th * 0.16, cx + 9 * s, by, fill="#6D4C41", outline="", tags=tg)
-        layers = ((0.52, 0.12, 0.5), (0.78, 0.40, 0.4), (0.98, 0.66, 0.28))
+
+        # Ствол
+        cv.create_rectangle(cx - 10 * s, by - Th * 0.16, cx + 10 * s, by, fill="#6D4C41", outline="#3E2723", tags=tg)
+
+        # Ярусы хвои
+        layers = ((0.46, 0.12, 0.54), (0.72, 0.38, 0.42), (0.96, 0.64, 0.28))
         for apex, base, hw in layers:
             cv.create_polygon(cx, by - Th * apex, cx - Tw * hw, by - Th * base, cx + Tw * hw, by - Th * base,
                               fill="#1B8A3A", outline="#0E5A24", width=2, tags=tg)
+
+        # Мишура зигзагом по ярусам
+        tinsel_cols = [cfg["color1"], cfg["color2"], cfg["color3"], cfg["color4"], "#FFD54F"]
+        for idx_l, (apex, base, hw) in enumerate(layers):
+            y_hi = by - Th * (apex - (apex - base) * 0.22)
+            y_lo = by - Th * (apex - (apex - base) * 0.90)
+            pts_m = []
+            steps = 8
+            for st_i in range(steps + 1):
+                frac = st_i / steps
+                yy = y_hi + (y_lo - y_hi) * frac
+                w_at_y = Tw * hw * (0.22 + 0.68 * frac) * 0.88
+                side = -1 if st_i % 2 == 0 else 1
+                pts_m += [cx + side * w_at_y, yy]
+            m_col = tinsel_cols[idx_l % len(tinsel_cols)]
+            cv.create_line(*pts_m, fill=m_col, width=max(2, int(3.2 * s)), tags=tg)
+
+        # Звезда на макушке
         pts = []
         for q in range(10):
             ang = -math.pi / 2 + q * math.pi / 5
-            rad = 13 * s if q % 2 == 0 else 6 * s
+            rad = 14 * s if q % 2 == 0 else 6.5 * s
             pts += [cx + math.cos(ang) * rad, by - Th * 1.0 + math.sin(ang) * rad]
         cv.create_polygon(*pts, fill="#FFD54F", outline="#FFF3B0", tags=tg)
+
+        # Огоньки на ёлке
         rnd = random.Random(5)
         self.tree_lights = []
-        pal = ["#FF3B30", "#FFD60A", "#34C759", "#0A84FF", "#FF6FD8"]
         for apex, base, hw in layers:
-            for _ in range(4):
-                v = rnd.uniform(0.15, 0.95)
+            for _ in range(5):
+                v = rnd.uniform(0.18, 0.92)
                 yy = by - Th * (apex - (apex - base) * v)
                 half = Tw * hw * v
-                xx = cx + rnd.uniform(-0.85, 0.85) * half
-                col = rnd.choice(pal)
-                rr = 4.2 * s
-                o = cv.create_oval(xx - rr, yy - rr, xx + rr, yy + rr, fill=col, outline="", tags=tg)
+                xx = cx + rnd.uniform(-0.82, 0.82) * half
+                col = rnd.choice(tinsel_cols)
+                rr = 4.4 * s
+                o = cv.create_oval(xx - rr, yy - rr, xx + rr, yy + rr, fill=col, outline="#FFFFFF", tags=tg)
                 self.tree_lights.append((o, col, rnd.uniform(0, 6.3)))
+
+        # Подарки под ёлкой с бантиками
+        gifts = [
+            (-1.05, 36, 28, "#E53935", "#FFD54F"),
+            (0.45, 32, 24, "#1E88E5", "#FFFFFF"),
+            (1.18, 26, 20, "#43A047", "#FFEB3B"),
+        ]
+        for gx, gw, gh, gcol, rcol in gifts:
+            x0 = cx + gx * Tw * 0.5
+            y0 = by - gh * s
+            x1 = x0 + gw * s
+            cv.create_rectangle(x0, y0, x1, by, fill=gcol, outline=blend(gcol, 0.55), width=1.5, tags=tg)
+            mx = (x0 + x1) * 0.5
+            cv.create_line(mx, y0, mx, by, fill=rcol, width=max(1, int(2.2 * s)), tags=tg)
+            cv.create_line(x0, (y0 + by) * 0.5, x1, (y0 + by) * 0.5, fill=rcol, width=max(1, int(2 * s)), tags=tg)
+            cv.create_oval(mx - 4 * s, y0 - 4 * s, mx + 4 * s, y0 + 2 * s, fill=rcol, outline="", tags=tg)
 
     def update_tree(self, now):
         if self.frame % 8:
@@ -2319,7 +2399,7 @@ class Engine:
 
 
 # ---------------------------------------------------------------- Приложение
-BG, PANEL, FG, MUTED, ACCENT = "#12162B", "#1D2345", "#E8ECFF", "#8C96C4", "#5CC8FF"
+BG, PANEL, CARD, FG, MUTED, ACCENT = "#101426", "#181E3B", "#1F274D", "#F1F4FF", "#939ECA", "#5CC8FF"
 
 
 class ScrollFrame(ttk.Frame):
@@ -2355,7 +2435,7 @@ class App:
         self.root = tk.Tk()
         self.root.title("Времена года и гирлянда")
         self.root.configure(bg=BG)
-        self.root.geometry("650x770")
+        self.root.geometry("660x780")
         self.root.resizable(False, True)
         self.vx = user32.GetSystemMetrics(76)
         self.vy = user32.GetSystemMetrics(77)
@@ -2390,7 +2470,7 @@ class App:
                 self.ov.deiconify()
 
     def hide_to_background(self):
-        save_cfg(self.cfg)
+        save_cfg(self.cfg, make_backup=False)
         self.root.withdraw()
         if self.cfg.get("pause_on_close", True):
             self.paused_background = True
@@ -2434,7 +2514,7 @@ class App:
                      lightcolor=ACCENT, darkcolor=ACCENT)
         st.configure("TButton", background=PANEL, foreground=FG, padding=(10, 7), borderwidth=0,
                      focuscolor=PANEL)
-        st.map("TButton", background=[("active", "#2C3566")])
+        st.map("TButton", background=[("active", CARD)])
         st.configure("Accent.TButton", background=ACCENT, foreground="#0B1020", font=("Segoe UI", 10, "bold"))
         st.map("Accent.TButton", background=[("active", "#8FDBFF")])
         st.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=FG, arrowcolor=FG,
@@ -2457,7 +2537,7 @@ class App:
             anchor="w", pady=(12, 2))
 
     def hint(self, parent, text):
-        tk.Label(parent, text=text, bg=BG, fg=MUTED, justify="left", wraplength=570,
+        tk.Label(parent, text=text, bg=BG, fg=MUTED, justify="left", wraplength=580,
                  font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 4))
 
     def apply_city_weather(self):
@@ -2487,6 +2567,50 @@ class App:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def open_palette_dialog(self):
+        win = tk.Toplevel(self.root)
+        win.title("Палитра цветов гирлянды")
+        win.configure(bg=BG)
+        win.geometry("460x360")
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(win, text="Выберите готовый набор или настройку 4 цветов",
+                 bg=BG, fg=FG, font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=14, pady=(12, 6))
+
+        for name, cols in COLOR_PALETTES.items():
+            rf = tk.Frame(win, bg=PANEL, padx=8, pady=6)
+            rf.pack(fill="x", padx=14, pady=3)
+            tk.Label(rf, text=name, bg=PANEL, fg=FG, width=14, anchor="w").pack(side="left")
+            for c in cols:
+                tk.Frame(rf, bg=c, width=28, height=20, bd=1, relief="solid").pack(side="left", padx=3)
+
+            def apply_set(cs=cols):
+                for idx, key in enumerate(("color1", "color2", "color3", "color4")):
+                    if key in self.setters:
+                        self.setters[key](cs[idx])
+                    else:
+                        self.set_cfg(key, cs[idx])
+                win.destroy()
+
+            ttk.Button(rf, text="Применить", command=apply_set).pack(side="right")
+
+        tk.Label(win, text="Точный выбор каждого цвета:",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=14, pady=(10, 4))
+        pf = tk.Frame(win, bg=BG)
+        pf.pack(fill="x", padx=14)
+        for i, key in enumerate(("color1", "color2", "color3", "color4"), 1):
+            ttk.Button(pf, text=f"Цвет {i}", command=lambda k=key: self._pick_color_key(k)).pack(
+                side="left", padx=3)
+
+    def _pick_color_key(self, key):
+        c = colorchooser.askcolor(self.cfg[key], parent=self.root)[1]
+        if c:
+            if key in self.setters:
+                self.setters[key](c)
+            else:
+                self.set_cfg(key, c)
+
     def build_ui(self):
         self.style()
         head = tk.Frame(self.root, bg=BG)
@@ -2498,6 +2622,7 @@ class App:
         nb = ttk.Notebook(self.root)
         nb.pack(fill="both", expand=True, padx=12, pady=8)
 
+        # --- Что падает (включая Метель)
         t = self.tab(nb, "Что падает")
         self.combo(t, "Сезон", "season", ["Авто", "Зима", "Осень", "Весна", "Лето"])
         self.combo(t, "Что падает", "fall_mode", ["По сезону", "Свой набор", "По погоде города"])
@@ -2518,10 +2643,19 @@ class App:
         grid.pack(fill="x")
         for n, (k, label) in enumerate(KINDS):
             self.check_grid(grid, label, "k_" + k, n // 2, n % 2)
+
+        self.section(t, "Метель (интервал и сила)")
+        self.scale(t, "Метель каждые N минут (0 — выкл)", "blizzard_every", 0, 60, 1)
+        self.scale(t, "Длительность метели, сек", "blizzard_len", 5, 120, 5)
+        self.scale(t, "Сила метели", "blizzard_power", 0.5, 3.0, 0.1)
+        ttk.Button(t, text="Запустить метель сейчас", command=lambda: self.engine.start_blizzard()).pack(
+            fill="x", pady=4)
+
+        self.section(t, "Параметры частиц и ветер")
         self.combo(t, "Вид снежинок", "snow_style",
                    ["Все вместе", "Звёздочки ❄", "Хлопья ❅", "Кристаллы ❆", "Точки"])
         self.color(t, "Цвет снега", "snow_color")
-        self.scale(t, "Количество", "density", 0, 260, 10)
+        self.scale(t, "Количество", "density", 0, 240, 10)
         self.scale(t, "Скорость", "speed", 0.1, 4.0, 0.1)
         self.scale(t, "Размер", "size", 2, 14, 1)
         self.combo(t, "Направление ветра", "wind_dir", ["Авто", "Влево", "Вправо"])
@@ -2530,16 +2664,11 @@ class App:
         self.scale(t, "Покачивание", "wobble", 0.0, 4.0, 0.1)
         self.check(t, "Только на рабочем столе (не считая гирлянды/сугробов на окнах)", "only_desktop")
 
+        # --- Физика
         t = self.tab(nb, "Физика")
         self.section(t, "Ветер")
         self.scale(t, "Порывы ветра", "gust_power", 0.0, 3.0, 0.1)
         self.scale(t, "Скорость порывов", "gust_speed", 0.2, 3.0, 0.1)
-        self.section(t, "Метель")
-        self.scale(t, "Каждые N минут (0 — выкл)", "blizzard_every", 0, 60, 1)
-        self.scale(t, "Длительность, сек", "blizzard_len", 5, 120, 5)
-        self.scale(t, "Сила метели", "blizzard_power", 0.5, 3.0, 0.1)
-        ttk.Button(t, text="Запустить метель сейчас", command=lambda: self.engine.start_blizzard()).pack(
-            fill="x", pady=4)
         self.section(t, "Курсор и пузыри")
         self.combo(t, "Режим курсора", "cursor_mode", ["Физика ветра", "Сметать", "Ничего"])
         self.scale(t, "Радиус", "cursor_radius", 30, 200, 5)
@@ -2552,6 +2681,7 @@ class App:
         self.scale(t, "Макс. снеговиков", "snowman_max", 1, 15, 1)
         self.scale(t, "Время таяния, сек (0 — не тают)", "snowman_melt_sec", 0, 600, 15)
 
+        # --- Гирлянда
         t = self.tab(nb, "Гирлянда")
         self.check(t, "Включить гирлянду", "garland_enabled")
         self.check(t, "Только зимой", "garland_winter_only")
@@ -2568,12 +2698,14 @@ class App:
         self.color(t, "Цвет провода", "garland_wire")
         row = ttk.Frame(t)
         row.pack(fill="x", pady=4)
-        ttk.Label(row, text="Цвета огоньков", width=28).pack(side="left")
+        ttk.Label(row, text="Цвета огоньков (4 цвета)", width=26).pack(side="left")
         for k in ("color1", "color2", "color3", "color4"):
             self.color_button(row, k).pack(side="left", padx=3)
+        ttk.Button(row, text="Палитра", command=self.open_palette_dialog).pack(side="right")
         self.combo(t, "Режим мигания", "blink_mode", BLINK_MODES)
         self.scale(t, "Скорость мигания", "blink_speed", 0.2, 10.0, 0.2)
 
+        # --- Сугробы
         t = self.tab(nb, "Сугробы")
         self.check(t, "Снег и листья оседают на окнах и панели задач", "pile_enabled")
         self.scale(t, "Высота сугроба", "pile_max", 4, 40, 1)
@@ -2591,6 +2723,7 @@ class App:
         ttk.Button(r2, text="Очистить весь снег", command=lambda: self.engine.clear_snow()).pack(
             side="left", expand=True, fill="x", padx=(3, 0))
 
+        # --- Небо
         t = self.tab(nb, "Небо")
         self.section(t, "Северное сияние")
         self.check(t, "Включить сияние", "aurora_enabled")
@@ -2602,7 +2735,7 @@ class App:
         self.check(t, "Не рисовать поверх окон", "aurora_behind")
         self.section(t, "Звёздное небо")
         self.check(t, "Включить звёзды", "stars_enabled")
-        self.scale(t, "Количество", "stars_count", 20, 150, 10)
+        self.scale(t, "Количество", "stars_count", 20, 140, 10)
         self.scale(t, "Высота, % экрана", "stars_height", 10, 100, 5)
         self.scale(t, "Мерцание", "stars_twinkle", 0.2, 4.0, 0.1)
         self.section(t, "Луна / Солнце")
@@ -2620,6 +2753,7 @@ class App:
         self.scale(t, "Размер саней", "santa_size", 0.6, 2.0, 0.1)
         ttk.Button(t, text="Запустить сани сейчас", command=lambda: self.engine.spawn_santa()).pack(fill="x", pady=4)
 
+        # --- Эффекты
         t = self.tab(nb, "Эффекты")
         self.section(t, "След за курсором")
         self.check(t, "Включить след", "trail_enabled")
@@ -2655,8 +2789,8 @@ class App:
         self.combo(t, "Цвет", "edge_mode", ["Радуга", "Тёплый", "Холодный", "По сезону"])
         self.scale(t, "Ширина", "edge_size", 20, 160, 5)
         self.scale(t, "Скорость", "edge_speed", 0.2, 4.0, 0.1)
-        self.section(t, "Новогодняя ёлка")
-        self.check(t, "Ёлка с подарками", "tree_enabled")
+        self.section(t, "Новогодняя ёлка с мишурой и подарками")
+        self.check(t, "Ёлка с мишурой и подарками", "tree_enabled")
         self.combo(t, "Монитор / сторона", "tree_corner", [
             "Правый монитор (правый низ)",
             "Правый монитор (левый низ)",
@@ -2665,25 +2799,26 @@ class App:
         ])
         self.scale(t, "Размер, %", "tree_size", 40, 200, 5)
 
+        # --- Система
         t = self.tab(nb, "Система")
         self.auto_var = tk.BooleanVar(value=is_autostart())
         ttk.Checkbutton(t, text="Запускать вместе с Windows", variable=self.auto_var,
                         command=self.toggle_autostart).pack(anchor="w", pady=4)
         self.check(t, "Автопауза при полноэкранных играх и видео", "pause_fullscreen")
         self.check(t, "Ставить эффекты на паузу при закрытии окна настроек", "pause_on_close")
-        self.scale(t, "Кадров в секунду", "fps", 15, 45, 5)
-        self.hint(t, "При закрытии на крестик окно уходит в трей. Нажмите на иконку в трее, "
-                     "чтобы открыть настройки или выключить эффекты.")
+        self.scale(t, "Кадров в секунду", "fps", 15, 35, 5)
+        self.hint(t, "«Сохранить» создаёт резервную копию настроек, а «Вернуть сохранение» "
+                     "позволяет в любой момент откатиться к сохранённым настройкам.")
 
         bar = ttk.Frame(self.root)
         bar.pack(fill="x", padx=12, pady=(2, 12))
-        ttk.Button(bar, text="Сохранить", style="Accent.TButton", command=lambda: save_cfg(self.cfg)).pack(
-            side="left", padx=3)
-        ttk.Button(bar, text="Сбросить", command=self.reset).pack(side="left", padx=3)
+        ttk.Button(bar, text="Сохранить", style="Accent.TButton",
+                   command=lambda: save_cfg(self.cfg, make_backup=True)).pack(side="left", padx=2)
+        ttk.Button(bar, text="Вернуть сохранение", command=self.restore_backup).pack(side="left", padx=2)
+        ttk.Button(bar, text="Сбросить", command=self.reset).pack(side="left", padx=2)
         self.toggle_btn = ttk.Button(bar, text="Скрыть эффекты", command=self.toggle)
-        self.toggle_btn.pack(side="left", padx=3)
-        ttk.Button(bar, text="Выход", command=self.quit).pack(side="right", padx=3)
-        ttk.Button(bar, text="В фон", command=self.hide_to_background).pack(side="right", padx=3)
+        self.toggle_btn.pack(side="left", padx=2)
+        ttk.Button(bar, text="Выход", command=self.quit).pack(side="right", padx=2)
 
     def scale(self, parent, text, key, lo, hi, step):
         f = ttk.Frame(parent)
@@ -2729,7 +2864,7 @@ class App:
         v = self._check_var(key)
         ttk.Checkbutton(parent, text=text, variable=v,
                         command=lambda: self.set_cfg(key, v.get())).grid(row=row, column=col, sticky="w",
-                                                                         padx=(0, 18), pady=2)
+                                                                         padx=(0, 16), pady=2)
 
     def combo(self, parent, text, key, values):
         f = ttk.Frame(parent)
@@ -2748,13 +2883,7 @@ class App:
     def color_button(self, parent, key):
         b = tk.Button(parent, width=4, relief="flat", bd=0, cursor="hand2",
                       bg=self.cfg[key], activebackground=self.cfg[key])
-
-        def pick():
-            c = colorchooser.askcolor(self.cfg[key], parent=self.root)[1]
-            if c:
-                self.set_cfg(key, c)
-                b.configure(bg=c, activebackground=c)
-        b.configure(command=pick)
+        b.configure(command=lambda k=key: self._pick_color_key(k))
 
         def setter(val):
             b.configure(bg=val, activebackground=val)
@@ -2772,12 +2901,21 @@ class App:
         if not set_autostart(self.auto_var.get()):
             self.auto_var.set(is_autostart())
 
-    def reset(self):
-        for k, v in DEFAULTS.items():
+    def _apply_dict(self, data):
+        for k, v in data.items():
             if k in self.setters:
                 self.setters[k](v)
             else:
                 self.set_cfg(k, v)
+
+    def restore_backup(self):
+        bak = load_backup_cfg()
+        if bak:
+            self._apply_dict(bak)
+            save_cfg(self.cfg, make_backup=False)
+
+    def reset(self):
+        self._apply_dict(DEFAULTS)
 
     def toggle(self):
         self.visible = not self.visible
@@ -2791,7 +2929,7 @@ class App:
             self.toggle_btn.configure(text="Показать эффекты")
 
     def quit(self):
-        save_cfg(self.cfg)
+        save_cfg(self.cfg, make_backup=False)
         if hasattr(self, "tray") and self.tray:
             self.tray.remove()
         self.root.destroy()
@@ -2803,7 +2941,7 @@ class App:
         except Exception:
             log_error("fast_tick")
         finally:
-            self.root.after(80, self.fast_tick)
+            self.root.after(90, self.fast_tick)
 
     def slow_tick(self):
         try:
@@ -2814,7 +2952,7 @@ class App:
         except Exception:
             log_error("slow_tick")
         finally:
-            self.root.after(max(20, int(1000 / max(10, self.cfg["fps"]))), self.slow_tick)
+            self.root.after(max(25, int(1000 / max(10, self.cfg["fps"]))), self.slow_tick)
 
 
 def main():

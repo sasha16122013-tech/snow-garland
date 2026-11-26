@@ -16,25 +16,12 @@ try:
 except ImportError:
     winreg = None
 
-# Правильное определение типов WinAPI для избежания ошибок
 user32 = ctypes.windll.user32
 dwmapi = ctypes.windll.dwmapi
 try:
     user32.SetProcessDPIAware()
 except Exception:
     pass
-
-# Теперь используем явные типы, чтобы Python их точно видел
-DWORD = wintypes.DWORD
-RECT = wintypes.RECT
-HWND = wintypes.HWND
-BOOL = wintypes.BOOL
-LPARAM = wintypes.LPARAM
-POINT = wintypes.POINT
-
-class MONITORINFO(ctypes.Structure):
-    _fields_ = [("cbSize", DWORD), ("rcMonitor", RECT),
-                ("rcWork", RECT), ("dwFlags", DWORD)]
 
 class MONITORINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
@@ -45,6 +32,7 @@ MONITORENUMPROC = ctypes.WINFUNCTYPE(
     wintypes.BOOL, ctypes.c_void_p, ctypes.c_void_p,
     ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
 
+# Здесь исправлено использование типов: везде wintypes.XXX
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsIconic.argtypes = [wintypes.HWND]
 user32.IsZoomed.argtypes = [wintypes.HWND]
@@ -58,11 +46,10 @@ user32.GetParent.restype = wintypes.HWND
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
 user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
 user32.EnumDisplayMonitors.argtypes = [ctypes.c_void_p, ctypes.c_void_p, MONITORENUMPROC, wintypes.LPARAM]
-dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, ctypes.DWORD, ctypes.c_void_p, ctypes.DWORD]
+dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, ctypes.DWORD]
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x80000, 0x20, 0x80
-
 def get_windows():
     result = []
     def cb(hwnd, _lp):

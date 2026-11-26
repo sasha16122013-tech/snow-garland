@@ -39,6 +39,8 @@ try:
 except Exception:
     pass
 
+LONG_PTR = ctypes.c_ssize_t
+
 
 class MONITORINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
@@ -51,26 +53,37 @@ MONITORENUMPROC = ctypes.WINFUNCTYPE(
     ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
 
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.restype = wintypes.BOOL
 user32.IsIconic.argtypes = [wintypes.HWND]
+user32.IsIconic.restype = wintypes.BOOL
 user32.IsZoomed.argtypes = [wintypes.HWND]
+user32.IsZoomed.restype = wintypes.BOOL
 user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
-user32.GetWindowLongW.restype = wintypes.c_long
-user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.c_long]
+user32.GetWindowLongW.restype = ctypes.c_long
+user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+user32.SetWindowLongW.restype = ctypes.c_long
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+user32.GetWindowTextLengthW.restype = ctypes.c_int
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.GetWindowRect.restype = wintypes.BOOL
 user32.GetParent.argtypes = [wintypes.HWND]
 user32.GetParent.restype = wintypes.HWND
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+user32.GetCursorPos.restype = wintypes.BOOL
 user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
+user32.GetMonitorInfoW.restype = wintypes.BOOL
 user32.EnumDisplayMonitors.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
                                        MONITORENUMPROC, wintypes.LPARAM]
+user32.EnumDisplayMonitors.restype = wintypes.BOOL
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
-user32.GetAsyncKeyState.restype = wintypes.c_short
+user32.GetAsyncKeyState.restype = ctypes.c_short
+user32.GetForegroundWindow.argtypes = []
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.LoadIconW.argtypes = [wintypes.HINSTANCE, ctypes.c_void_p]
 user32.LoadIconW.restype = wintypes.HICON
 dwmapi.DwmGetWindowAttribute.argtypes = [
     wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x80000, 0x20, 0x80
@@ -334,7 +347,7 @@ def _parse_cfg_dict(data):
     for k in DEFAULTS:
         if k in data and type(data[k]) == type(DEFAULTS[k]):
             cfg[k] = data[k]
-        elif k in data and isinstance(DEFAULTS[k], float) and \
+        elif k in data and isinstance(data[k], float) and \
                 isinstance(data[k], int) and not isinstance(data[k], bool):
             cfg[k] = float(data[k])
     if cfg.get("tree_corner") in ("Правый низ", "Левый низ"):
@@ -534,7 +547,7 @@ class TrayIcon:
 
     def _create_window(self):
         WNDPROC = ctypes.WINFUNCTYPE(
-            ctypes.c_long, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM
+            LONG_PTR, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM
         )
 
         def wnd_proc(hwnd, msg, wparam, lparam):
@@ -574,8 +587,7 @@ class TrayIcon:
         )
 
     def _get_icon(self):
-        icon = user32.LoadIconW(None, ctypes.c_void_p(IDI_APPLICATION))
-        return icon
+        return user32.LoadIconW(None, ctypes.c_void_p(IDI_APPLICATION))
 
     def add(self):
         if self.active or not self.hwnd:
@@ -655,6 +667,7 @@ class Engine:
         self.bliz, self.bliz_f, self.bliz_dir, self.next_bliz = None, 0.0, 1, None
         self.next_meteor, self.next_fw, self.next_santa = 0.0, 0.0, 0.0
         self.meteors, self.rockets, self.santas = [], [], []
+        self.tree_lights = []
         self.errors, self.disabled = {}, set()
 
     def guard(self, name, fn, *a):
@@ -727,7 +740,7 @@ class Engine:
             self.paused_fullscreen = False
             return False
         rect = wintypes.RECT()
-        if user32.GetWindowRect(fg, ctypes.byref(rect)) == 0:
+        if not user32.GetWindowRect(fg, ctypes.byref(rect)):
             self.paused_fullscreen = False
             return False
         w, h = rect.right - rect.left, rect.bottom - rect.top
@@ -2363,13 +2376,11 @@ class Engine:
         cx = (r - self.vx - 54 * s - Tw / 2) if place_right else (l - self.vx + 54 * s + Tw / 2)
         tg = "e_tree"
 
-        # Ствол с объёмом
         cv.create_rectangle(cx - 12 * s, by - Th * 0.14, cx + 12 * s, by,
                             fill="#5D4037", outline="#3E2723", width=1.5, tags=tg)
         cv.create_rectangle(cx - 4 * s, by - Th * 0.14, cx + 4 * s, by,
                             fill="#795548", outline="", tags=tg)
 
-        # 4 пушистых яруса хвои с зубчиками лап
         tiers = [
             (0.42, 0.12, 0.56, "#166534", "#22C55E"),
             (0.62, 0.32, 0.45, "#15803D", "#4ADE80"),
@@ -2380,10 +2391,8 @@ class Engine:
             y_top = by - Th * top_f
             y_bot = by - Th * bot_f
             hw = Tw * hw_f
-            # Тёмная основа яруса
             cv.create_polygon(cx, y_top, cx - hw, y_bot, cx + hw, y_bot,
                               fill=dark_c, outline="#0B3B1E", width=1.5, tags=tg)
-            # Светлая сторона и зубчики веток
             cv.create_polygon(cx, y_top, cx, y_bot, cx + hw * 0.92, y_bot,
                               fill=light_c, outline="", stipple="gray50", tags=tg)
             teeth = 5
@@ -2393,7 +2402,6 @@ class Engine:
                 tw = hw * (0.22 + 0.78 * f0)
                 cv.create_line(cx - tw, ty, cx + tw, ty, fill="#0B3B1E", width=1.5, tags=tg)
 
-        # Звезда на макушке
         star_y = by - Th * 1.0
         pts = []
         for q in range(10):
@@ -2402,7 +2410,6 @@ class Engine:
             pts += [cx + math.cos(ang) * rad, star_y + math.sin(ang) * rad]
         cv.create_polygon(*pts, fill="#FACC15", outline="#FEF08A", width=1.5, tags=tg)
 
-        # Гирлянда и шары на ветках
         cols = [cfg["color1"], cfg["color2"], cfg["color3"], cfg["color4"], "#FACC15"]
         rnd = random.Random(11)
         self.tree_lights = []
@@ -2410,7 +2417,6 @@ class Engine:
             y_top = by - Th * top_f
             y_bot = by - Th * bot_f
             hw = Tw * hw_f
-            # Дуга гирлянды по ярусу
             gy_a = y_top + (y_bot - y_top) * 0.55
             gy_b = y_top + (y_bot - y_top) * 0.85
             gw = hw * 0.78
@@ -2428,7 +2434,6 @@ class Engine:
                                    fill=col, outline="#FFFFFF", width=1, tags=tg)
                 self.tree_lights.append((o, col, rnd.uniform(0, 6.3)))
 
-        # Подарки у основания
         gifts = [
             (-1.02, 34, 26, "#DC2626", "#FACC15"),
             (0.42, 30, 22, "#2563EB", "#FFFFFF"),

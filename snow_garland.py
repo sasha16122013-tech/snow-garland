@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 import ctypes
 from ctypes import wintypes
+
+# 🛠️ ЖЕЛЕЗОБЕТОННАЯ ЗАЩИТА ОТ ОШИБКИ ctypes.DWORD:
+ctypes.DWORD = wintypes.DWORD
+ctypes.HWND = wintypes.HWND
+ctypes.RECT = wintypes.RECT
+ctypes.BOOL = wintypes.BOOL
+ctypes.LPARAM = wintypes.LPARAM
+ctypes.POINT = wintypes.POINT
+
 import json
 import math
 import os
@@ -11,13 +19,6 @@ import time
 import traceback
 import tkinter as tk
 from tkinter import ttk, colorchooser
-
-# Принудительно задаем типы через явное обращение к библиотеке
-DWORD = wintypes.DWORD
-BOOL = wintypes.BOOL
-HWND = wintypes.HWND
-RECT = wintypes.RECT
-LPARAM = wintypes.LPARAM
 
 try:
     import winreg
@@ -32,12 +33,14 @@ except Exception:
     pass
 
 class MONITORINFO(ctypes.Structure):
-    _fields_ = [("cbSize", DWORD), ("rcMonitor", RECT),
-                ("rcWork", RECT), ("dwFlags", DWORD)]
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
 
-WNDENUMPROC = ctypes.WINFUNCTYPE(BOOL, HWND, LPARAM)
-MONITORENUMPROC = ctypes.WINFUNCTYPE(BOOL, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(RECT), LPARAM)
-# Здесь исправлено использование типов: везде wintypes.XXX
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+MONITORENUMPROC = ctypes.WINFUNCTYPE(
+    wintypes.BOOL, ctypes.c_void_p, ctypes.c_void_p,
+    ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsIconic.argtypes = [wintypes.HWND]
 user32.IsZoomed.argtypes = [wintypes.HWND]
@@ -46,15 +49,16 @@ user32.GetWindowLongW.restype = ctypes.c_long
 user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+user32.GetParent.argtypes = [wintypes.HWND]
 user32.GetParent.restype = wintypes.HWND
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
 user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
 user32.EnumDisplayMonitors.argtypes = [ctypes.c_void_p, ctypes.c_void_p, MONITORENUMPROC, wintypes.LPARAM]
-dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, ctypes.DWORD]
+dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x80000, 0x20, 0x80
+
 def get_windows():
     result = []
     def cb(hwnd, _lp):
@@ -519,7 +523,7 @@ class Engine:
         else: self.update_dwell(now, cx, cy, pm)
 
     def update_dwell(self, now, cx, cy, pm):
-        cfg, cv = self.cv, self.cfg
+        cfg, cv = self.cfg, self.cv
         if now < self.dwell_cool: self.dwell = None; return
         target = None
         for (key, a, c, top, left, width) in self.surfaces:

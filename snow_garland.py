@@ -5,12 +5,6 @@ import math
 import random
 import tkinter as tk
 
-try:
-    from PIL import Image, ImageDraw, ImageFilter, ImageTk
-    HAS_PIL = True
-except ImportError:
-    HAS_PIL = False
-
 user32 = ctypes.windll.user32
 dwmapi = ctypes.windll.dwmapi
 
@@ -84,7 +78,7 @@ def pin_topmost_noactivate(hwnd):
 
 class SmoothSlider(tk.Canvas):
     def __init__(self, parent, variable, lo, hi, step=1, accent="#38bdf8", bg="#141926", is_float=False):
-        super().__init__(parent, width=174, height=22, bg=bg, highlightthickness=0, bd=0, cursor="hand2")
+        super().__init__(parent, width=176, height=22, bg=bg, highlightthickness=0, bd=0, cursor="hand2")
         self.var = variable
         self.lo = float(lo)
         self.hi = float(hi)
@@ -163,11 +157,11 @@ class SwitchPill(tk.Canvas):
         self.create_oval(kx - 6.5, 3.5, kx + 6.5, 16.5, fill="#ffffff", outline="")
 
 
-class AtmosphereSnowApp:
+class AtmosphereApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(MENU_TITLE)
-        self.root.geometry("510x690+90+60")
+        self.root.geometry("560x620+90+60")
         self.root.resizable(False, False)
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
@@ -189,7 +183,7 @@ class AtmosphereSnowApp:
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
 
-        # --- Вкладка 1: Снег и Сугробы (осадки + физика + машина) ---
+        # --- Вкладка 1: Снег и Метель ---
         self.weather_enabled = tk.BooleanVar(value=True)
         self.auto_season = tk.BooleanVar(value=False)
         self.season = tk.StringVar(value="winter")
@@ -197,25 +191,28 @@ class AtmosphereSnowApp:
         self.count_var = tk.IntVar(value=70)
         self.speed_var = tk.DoubleVar(value=2.0)
         self.wind_var = tk.DoubleVar(value=0.25)
+        self.blizzard_var = tk.DoubleVar(value=0.0)
+        self.storm_timer = 0
 
+        # --- Вкладка 2: Сугробы ---
         self.pile_enabled = tk.BooleanVar(value=True)
         self.pile_max_cap = tk.IntVar(value=22)
 
-        # Настройки тачки (снегоуборочная машина)
+        # --- Вкладка 3: Машина ---
         self.plow_enabled = tk.BooleanVar(value=True)
         self.plow_mode = tk.StringVar(value="both")
         self.plow_interval = tk.IntVar(value=20)
         self.plow_threshold = tk.IntVar(value=10)
-        self.plow_speed = tk.DoubleVar(value=8.5)
-        self.plow_blade_w = tk.IntVar(value=24)
+        self.plow_speed = tk.DoubleVar(value=8.0)
+        self.plow_blade_w = tk.IntVar(value=22)
 
-        self.plow_x = -120.0
+        self.plow_x = -90.0
         self.plow_y = float(self.screen_h - 56)
         self.plow_active = False
         self.plow_ticks = 0
         self.plow_force_once = False
 
-        # --- Вкладка 2: Гирлянда ---
+        # --- Вкладка 4: Гирлянда ---
         self.top_garland = tk.BooleanVar(value=True)
         self.win_garland = tk.BooleanVar(value=True)
         self.win_scope = tk.StringVar(value="all")
@@ -224,14 +221,17 @@ class AtmosphereSnowApp:
         self.garland_mode = tk.StringVar(value="rainbow")
         self.garland_palette = tk.StringVar(value="classic")
         self.garland_spacing = tk.IntVar(value=38)
+        self._garland_dirty = True
+        self._last_garland_sig = None
 
-        # --- Вкладка 3: Фейерверки и Аврора ---
+        # --- Вкладка 5: Фейерверки ---
         self.fireworks_enabled = tk.BooleanVar(value=True)
         self.firework_interval = tk.IntVar(value=6)
         self.fw_ticks = 45
+
+        # --- Вкладка 6: Аврора и шлейф ---
         self.aurora_enabled = tk.BooleanVar(value=True)
         self.cursor_trail = tk.BooleanVar(value=True)
-        self.storm_timer = 0
 
         # --- Состояние симуляции ---
         self.particles = []
@@ -257,8 +257,7 @@ class AtmosphereSnowApp:
         self.spark_pool = []
         self.pile_pool = []
         self.bulb_pool = []
-        self.aurora_photo = None
-        self.aurora_img_id = None
+        self.aurora_lines = []
         self.plow_pool = ()
         self.overlay_hwnd = None
         self.my_hwnds = set()
@@ -287,14 +286,15 @@ class AtmosphereSnowApp:
         return user32.GetParent(hwnd) in self.my_hwnds
 
     def _topmost_loop(self):
-        try:
-            if self.overlay_hwnd:
-                pin_topmost_noactivate(self.overlay_hwnd)
-            if self.root_hwnd and self.root.state() == "normal":
-                pin_topmost_noactivate(self.root_hwnd)
-        except Exception:
-            pass
-        self.root.after(250, self._topmost_loop)
+        if not self.dragging:
+            try:
+                if self.overlay_hwnd:
+                    pin_topmost_noactivate(self.overlay_hwnd)
+                if self.root_hwnd and self.root.state() == "normal":
+                    pin_topmost_noactivate(self.root_hwnd)
+            except Exception:
+                pass
+        self.root.after(450, self._topmost_loop)
 
     # =========================================================================
     # ПЛАВНОЕ ПЕРЕТАСКИВАНИЕ БЕЗ ЛАГОВ
@@ -311,12 +311,13 @@ class AtmosphereSnowApp:
 
     def _drag_stop(self, _e):
         self.dragging = False
+        self._garland_dirty = True
         if self.root_hwnd:
             pin_topmost_noactivate(self.root_hwnd)
         self._scan_windows()
 
     # =========================================================================
-    # МЕНЮ: ВЕСЬ СНЕГ В ОДНОЙ ВКЛАДКЕ
+    # МЕНЮ С ОТДЕЛЬНОЙ ВКЛАДКОЙ ПОД КАЖДУЮ ФУНКЦИЮ
     # =========================================================================
     def _build_ui(self):
         shell = tk.Frame(self.root, bg="#0b0e17", highlightbackground="#222a40", highlightthickness=1)
@@ -381,13 +382,16 @@ class AtmosphereSnowApp:
             command=self.root.destroy,
         ).pack(side="left", padx=3)
 
-        tab_bar = tk.Frame(shell, bg="#111625", padx=4, pady=4)
-        tab_bar.pack(fill="x", padx=14, pady=(8, 6))
+        tab_bar = tk.Frame(shell, bg="#111625", padx=3, pady=3)
+        tab_bar.pack(fill="x", padx=12, pady=(8, 6))
 
         tab_defs = [
-            ("snow", "❄️ Снег и Сугробы"),
+            ("snow", "❄️ Снег"),
+            ("piles", "⛄ Сугробы"),
+            ("plow", "🚜 Машина"),
             ("garland", "💡 Гирлянда"),
-            ("effects", "🎆 Фейерверки и Аврора"),
+            ("fireworks", "🎆 Салют"),
+            ("aurora", "🌌 Аврора"),
         ]
 
         self.tab_frames = {}
@@ -396,20 +400,23 @@ class AtmosphereSnowApp:
             b = tk.Button(
                 tab_bar,
                 text=text,
-                font=("Segoe UI", 9, "bold"),
+                font=("Segoe UI", 8, "bold"),
                 relief="flat",
                 bd=0,
                 pady=6,
                 cursor="hand2",
                 command=lambda k=key: self._switch_tab(k),
             )
-            b.pack(side="left", expand=True, fill="x", padx=2)
+            b.pack(side="left", expand=True, fill="x", padx=1)
             self.tab_btns[key] = b
             self.tab_frames[key] = tk.Frame(shell, bg="#0b0e17")
 
         self._build_snow_tab(self.tab_frames["snow"])
+        self._build_piles_tab(self.tab_frames["piles"])
+        self._build_plow_tab(self.tab_frames["plow"])
         self._build_garland_tab(self.tab_frames["garland"])
-        self._build_effects_tab(self.tab_frames["effects"])
+        self._build_fireworks_tab(self.tab_frames["fireworks"])
+        self._build_aurora_tab(self.tab_frames["aurora"])
         self._switch_tab("snow")
 
     def _minimize(self):
@@ -432,21 +439,21 @@ class AtmosphereSnowApp:
                 bg="#2563eb" if act else "#111625",
                 fg="#ffffff" if act else "#64748b",
             )
-        self.tab_frames[key].pack(fill="both", expand=True, padx=14, pady=2)
+        self.tab_frames[key].pack(fill="both", expand=True, padx=14, pady=4)
 
     def _card(self, parent, title: str, accent="#38bdf8"):
         c = tk.Frame(parent, bg="#141926", highlightbackground="#1f273d", highlightthickness=1)
-        c.pack(fill="x", pady=4)
+        c.pack(fill="x", pady=5)
         tk.Label(c, text=title, bg="#141926", fg=accent, font=("Segoe UI", 8, "bold")).pack(
-            anchor="w", padx=12, pady=(5, 2)
+            anchor="w", padx=12, pady=(7, 3)
         )
         body = tk.Frame(c, bg="#141926")
-        body.pack(fill="x", padx=12, pady=(0, 7))
+        body.pack(fill="x", padx=12, pady=(0, 9))
         return body
 
     def _toggle(self, parent, title: str, sub: str, var: tk.BooleanVar, cmd=None, accent="#38bdf8"):
         row = tk.Frame(parent, bg="#141926")
-        row.pack(fill="x", pady=2)
+        row.pack(fill="x", pady=3)
         left = tk.Frame(row, bg="#141926")
         left.pack(side="left", fill="x", expand=True)
         tk.Label(left, text=title, bg="#141926", fg="#f1f5f9", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -456,7 +463,7 @@ class AtmosphereSnowApp:
 
     def _pills(self, parent, items, getter, setter, accent="#2563eb"):
         row = tk.Frame(parent, bg="#0f1320", padx=3, pady=3)
-        row.pack(fill="x", pady=(3, 2))
+        row.pack(fill="x", pady=(4, 2))
         btns = {}
         for k, lbl in items:
             b = tk.Button(
@@ -465,7 +472,7 @@ class AtmosphereSnowApp:
                 font=("Segoe UI", 8, "bold"),
                 relief="flat",
                 bd=0,
-                pady=4,
+                pady=5,
                 cursor="hand2",
                 command=lambda val=k: setter(val),
             )
@@ -486,7 +493,7 @@ class AtmosphereSnowApp:
 
     def _slider_row(self, parent, lbl: str, var, lo, hi, step=1, accent="#38bdf8", is_float=False, cmd=None):
         row = tk.Frame(parent, bg="#141926")
-        row.pack(fill="x", pady=1)
+        row.pack(fill="x", pady=2)
         tk.Label(row, text=lbl, bg="#141926", fg="#cbd5e1", font=("Segoe UI", 9)).pack(side="left")
         v_lbl = tk.Label(row, text="", bg="#141926", fg=accent, font=("Segoe UI", 9, "bold"), width=5, anchor="e")
         v_lbl.pack(side="right", padx=(4, 0))
@@ -502,11 +509,11 @@ class AtmosphereSnowApp:
 
         SmoothSlider(row, var, lo, hi, step=step, accent=accent, bg="#141926", is_float=is_float).pack(side="right")
 
-    # --- Единая вкладка: всё, что связано со снегом ---
+    # --- Вкладка 1: Снег и Метель ---
     def _build_snow_tab(self, parent):
-        c1 = self._card(parent, "СНЕГ И ОСАДКИ", "#38bdf8")
-        self._toggle(c1, "Осадки / листья / светлячки", "На пустом месте падают ниже к нижнему краю, на окнах оседают", self.weather_enabled)
-        self._toggle(c1, "Авто-сезон по календарю", "Подстраивается под текущее время года", self.auto_season, cmd=self._on_auto_season, accent="#10b981")
+        c1 = self._card(parent, "ОСАДКИ, СЕЗОН И МЕТЕЛЬ", "#38bdf8")
+        self._toggle(c1, "Включить осадки / листья / светлячки", "На пустом месте падают ниже к низу экрана, на окнах оседают", self.weather_enabled)
+        self._toggle(c1, "Авто-сезон по календарю", "Выбирает сезон по текущему месяцу", self.auto_season, cmd=self._on_auto_season, accent="#10b981")
         self._ref_season = self._pills(
             c1,
             [("winter", "❄️ Зима"), ("spring", "🌿 Весна"), ("summer", "✨ Лето"), ("autumn", "🍁 Осень")],
@@ -520,56 +527,88 @@ class AtmosphereSnowApp:
             self._set_shape,
             accent="#6366f1",
         )
-        self._slider_row(c1, "Плотность:", self.count_var, 15, 130, 1, accent="#38bdf8", cmd=self._rebuild_particles)
-        self._slider_row(c1, "Скорость:", self.speed_var, 0.6, 6.0, 0.2, accent="#38bdf8", is_float=True)
-        self._slider_row(c1, "Ветер:", self.wind_var, -2.5, 2.5, 0.1, accent="#38bdf8", is_float=True)
 
-        c2 = self._card(parent, "СУГРОБЫ И ФИЗИКА ОКОН", "#60a5fa")
-        self._toggle(c2, "Накапливать сугробы и листья", "При сдвиге окна или лимите высоты осыпаются вниз", self.pile_enabled, cmd=self._on_pile_toggle)
-        self._slider_row(c2, "Лимит высоты сугроба (px):", self.pile_max_cap, 8, 45, 1, accent="#60a5fa")
+        c2 = self._card(parent, "СКОРОСТЬ, ВЕТЕР И МЕТЕЛЬ", "#a5b4fc")
+        self._slider_row(c2, "Плотность:", self.count_var, 15, 130, 1, accent="#38bdf8", cmd=self._rebuild_particles)
+        self._slider_row(c2, "Скорость:", self.speed_var, 0.6, 6.0, 0.2, accent="#38bdf8", is_float=True)
+        self._slider_row(c2, "Ветер:", self.wind_var, -2.5, 2.5, 0.1, accent="#38bdf8", is_float=True)
+        self._slider_row(c2, "Метель (порывы):", self.blizzard_var, 0.0, 3.0, 0.1, accent="#7dd3fc", is_float=True)
         tk.Button(
             c2,
-            text="🧹 Очистить сугробы и листья",
-            bg="#1e263b",
-            fg="#e2e8f0",
-            activebackground="#2b3654",
+            text="🌬️ Порыв метели на 5 сек",
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
             font=("Segoe UI", 8, "bold"),
             relief="flat",
             pady=4,
             cursor="hand2",
-            command=self._clear_pile,
-        ).pack(fill="x", pady=(3, 0))
+            command=self._trigger_storm,
+        ).pack(fill="x", pady=(4, 0))
 
-        c3 = self._card(parent, "ТАЧКА (ЕДЕТ СНИЗУ -> ЗАЕЗЖАЕТ НА ОКНА -> ВВЕРХ)", "#f59e0b")
-        self._toggle(c3, "Уборочная машина", "Идёт снизу, взбирается на окна Windows и уезжает", self.plow_enabled, accent="#f59e0b")
+    # --- Вкладка 2: Сугробы ---
+    def _build_piles_tab(self, parent):
+        c1 = self._card(parent, "СУГРОБЫ И ФИЗИКА ПАДЕНИЯ", "#60a5fa")
+        self._toggle(
+            c1,
+            "Накапливать сугробы и листья",
+            "При сдвиге окна или лимите высоты небольшие комья осыпаются вниз",
+            self.pile_enabled,
+            cmd=self._on_pile_toggle,
+        )
+        self._slider_row(c1, "Лимит высоты сугроба (px):", self.pile_max_cap, 8, 45, 1, accent="#60a5fa")
+        tk.Button(
+            c1,
+            text="🧹 Очистить сугробы и листья",
+            bg="#1e263b",
+            fg="#e2e8f0",
+            activebackground="#2b3654",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            pady=6,
+            cursor="hand2",
+            command=self._clear_pile,
+        ).pack(fill="x", pady=(6, 0))
+
+    # --- Вкладка 3: Машина ---
+    def _build_plow_tab(self, parent):
+        c1 = self._card(parent, "СНЕГОУБОРОЧНАЯ МАШИНА", "#f59e0b")
+        self._toggle(
+            c1,
+            "Уборочная машина",
+            "Едет снизу, забирается на окна Windows и убирает снег/листья",
+            self.plow_enabled,
+            accent="#f59e0b",
+        )
         self._ref_plow = self._pills(
-            c3,
+            c1,
             [("both", "⏱️+📏 Оба"), ("time", "⏱️ По времени"), ("threshold", "📏 По порогу")],
             self.plow_mode.get,
             self._set_plow_mode,
             accent="#d97706",
         )
-        self._slider_row(c3, "Скорость тачки:", self.plow_speed, 3.0, 18.0, 0.5, accent="#f59e0b", is_float=True)
-        self._slider_row(c3, "Ширина отвала (px):", self.plow_blade_w, 12, 42, 2, accent="#f59e0b")
-        self._slider_row(c3, "Интервал рейса (сек):", self.plow_interval, 5, 120, 5, accent="#f59e0b")
-        self._slider_row(c3, "Порог сугроба (px):", self.plow_threshold, 4, 30, 1, accent="#f59e0b")
+        self._slider_row(c1, "Скорость тачки:", self.plow_speed, 3.0, 16.0, 0.5, accent="#f59e0b", is_float=True)
+        self._slider_row(c1, "Ширина отвала (px):", self.plow_blade_w, 12, 36, 2, accent="#f59e0b")
+        self._slider_row(c1, "Интервал рейса (сек):", self.plow_interval, 5, 120, 5, accent="#f59e0b")
+        self._slider_row(c1, "Порог сугроба (px):", self.plow_threshold, 4, 30, 1, accent="#f59e0b")
         tk.Button(
-            c3,
+            c1,
             text="🚜 Вызвать тачку сейчас",
             bg="#b45309",
             fg="#ffffff",
             activebackground="#92400e",
-            font=("Segoe UI", 8, "bold"),
+            font=("Segoe UI", 9, "bold"),
             relief="flat",
-            pady=4,
+            pady=5,
             cursor="hand2",
             command=self._call_plow_now,
-        ).pack(fill="x", pady=(3, 0))
+        ).pack(fill="x", pady=(6, 0))
 
+    # --- Вкладка 4: Гирлянда ---
     def _build_garland_tab(self, parent):
-        c1 = self._card(parent, "ГДЕ И ВИД ГИРЛЯНДЫ", "#fbbf24")
-        self._toggle(c1, "Гирлянда вверху экрана", "Вдоль верхнего края монитора", self.top_garland, accent="#f59e0b")
-        self._toggle(c1, "Гирлянда на окнах", "Закрепляется на верхних рамках окон", self.win_garland, accent="#f59e0b")
+        c1 = self._card(parent, "РАСПОЛОЖЕНИЕ И ФОРМА", "#fbbf24")
+        self._toggle(c1, "Гирлянда вверху экрана", "Вдоль верхнего края монитора", self.top_garland, cmd=self._mark_garland_dirty, accent="#f59e0b")
+        self._toggle(c1, "Гирлянда на окнах", "Крепится на верхних рамках окон", self.win_garland, cmd=self._mark_garland_dirty, accent="#f59e0b")
         self._ref_scope = self._pills(
             c1,
             [("all", "На всех окнах"), ("active", "Только активное")],
@@ -585,9 +624,9 @@ class AtmosphereSnowApp:
             accent="#ea580c",
         )
 
-        c2 = self._card(parent, "РАЗМЕР И РЕЖИМ", "#f472b6")
-        self._slider_row(c2, "Размер гирлянды:", self.garland_scale, 0.6, 1.8, 0.05, accent="#f472b6", is_float=True)
-        self._slider_row(c2, "Шаг между лампочками (px):", self.garland_spacing, 24, 72, 2, accent="#f472b6")
+        c2 = self._card(parent, "РАЗМЕР, РЕЖИМ И ЦВЕТА", "#f472b6")
+        self._slider_row(c2, "Размер гирлянды:", self.garland_scale, 0.6, 1.8, 0.05, accent="#f472b6", is_float=True, cmd=self._mark_garland_dirty)
+        self._slider_row(c2, "Шаг между лампочками (px):", self.garland_spacing, 24, 72, 2, accent="#f472b6", cmd=self._mark_garland_dirty)
         self._ref_mode = self._pills(
             c2,
             [("rainbow", "🌈 Перелив"), ("wave", "🌊 Волна"), ("twinkle", "✨ Мерцание"), ("steady", "💡 Ровный")],
@@ -595,23 +634,22 @@ class AtmosphereSnowApp:
             self._set_mode,
             accent="#db2777",
         )
-
-        c3 = self._card(parent, "ПАЛИТРА ЦВЕТОВ", "#34d399")
         self._ref_pal = self._pills(
-            c3,
+            c2,
             [("classic", "🎄 Классика"), ("warm", "🕯️ Тёплая"), ("cyber", "🟣 Неон"), ("ice", "🧊 Лёд")],
             self.garland_palette.get,
             self._set_palette,
             accent="#059669",
         )
 
-    def _build_effects_tab(self, parent):
+    # --- Вкладка 5: Фейерверки ---
+    def _build_fireworks_tab(self, parent):
         c1 = self._card(parent, "ФЕЙЕРВЕРКИ", "#f43f5e")
-        self._toggle(c1, "Автоматические фейерверки", "Запускаются по заданному интервалу", self.fireworks_enabled, accent="#f43f5e")
+        self._toggle(c1, "Автоматический запуск", "Запускает залпы по заданному интервалу", self.fireworks_enabled, accent="#f43f5e")
         self._slider_row(c1, "Интервал запуска (сек):", self.firework_interval, 2, 30, 1, accent="#f43f5e")
         tk.Button(
             c1,
-            text="🎆 Запустить фейерверк сейчас",
+            text="🎆 Запустить залп сейчас",
             bg="#7c3aed",
             fg="#ffffff",
             activebackground="#6d28d9",
@@ -622,23 +660,16 @@ class AtmosphereSnowApp:
             command=self._spawn_firework_burst,
         ).pack(fill="x", pady=(6, 0))
 
-        c2 = self._card(parent, "СЕВЕРНОЕ СИЯНИЕ И ШЛЕЙФ", "#2dd4bf")
-        self._toggle(c2, "Северное сияние вверху экрана", "Мягкое непиксельное переливание у верхней кромки", self.aurora_enabled, accent="#14b8a6")
-        self._toggle(c2, "Шлейф за курсором", "Искорки при движении мыши", self.cursor_trail, accent="#a855f7")
-        tk.Button(
-            c2,
-            text="🌬️ Порыв метели на 5 сек",
-            bg="#2563eb",
-            fg="#ffffff",
-            activebackground="#1d4ed8",
-            font=("Segoe UI", 9, "bold"),
-            relief="flat",
-            pady=6,
-            cursor="hand2",
-            command=self._trigger_storm,
-        ).pack(fill="x", pady=(4, 0))
+    # --- Вкладка 6: Аврора и шлейф ---
+    def _build_aurora_tab(self, parent):
+        c1 = self._card(parent, "СЕВЕРНОЕ СИЯНИЕ И ШЛЕЙФ", "#2dd4bf")
+        self._toggle(c1, "Северное сияние вверху экрана", "Мягкое переливание у верхней кромки", self.aurora_enabled, accent="#14b8a6")
+        self._toggle(c1, "Шлейф за курсором", "Искорки при движении мыши", self.cursor_trail, accent="#a855f7")
 
     # --- Коллбэки ---
+    def _mark_garland_dirty(self):
+        self._garland_dirty = True
+
     def _on_auto_season(self):
         if self.auto_season.get():
             self.season.set(get_current_season())
@@ -660,10 +691,12 @@ class AtmosphereSnowApp:
 
     def _set_scope(self, v: str):
         self.win_scope.set(v)
+        self._garland_dirty = True
         self._ref_scope()
 
     def _set_style(self, v: str):
         self.garland_style.set(v)
+        self._garland_dirty = True
         self._ref_style()
 
     def _set_plow_mode(self, v: str):
@@ -672,10 +705,12 @@ class AtmosphereSnowApp:
 
     def _set_mode(self, v: str):
         self.garland_mode.set(v)
+        self._garland_dirty = True
         self._ref_mode()
 
     def _set_palette(self, v: str):
         self.garland_palette.set(v)
+        self._garland_dirty = True
         self._ref_pal()
 
     def _on_pile_toggle(self):
@@ -758,7 +793,11 @@ class AtmosphereSnowApp:
         pin_topmost_noactivate(hwnd)
 
     def _init_pools(self):
-        self.aurora_img_id = self.canvas.create_image(0, 0, anchor="nw", state="hidden")
+        # Мягкие волны северного сияния без stipple
+        aurora_cols = ["#0f766e", "#0d9488", "#0284c7", "#0369a1", "#2563eb", "#6d28d9", "#10b981", "#06b6d4"]
+        for col in aurora_cols:
+            lid = self.canvas.create_line(-50, -50, 50, -50, fill=col, width=7, capstyle="round", smooth=True, state="hidden")
+            self.aurora_lines.append(lid)
 
         for _ in range(135):
             ov = self.canvas.create_oval(-20, -20, -15, -15, fill="#ffffff", outline="", state="hidden")
@@ -770,7 +809,7 @@ class AtmosphereSnowApp:
 
         self.chunk_pool = [
             self.canvas.create_oval(-20, -20, -14, -14, fill="#ffffff", outline="#e2e8f0", width=1, state="hidden")
-            for _ in range(110)
+            for _ in range(80)
         ]
 
         self.spark_pool = [
@@ -798,7 +837,7 @@ class AtmosphereSnowApp:
         self.plow_pool = (plow_body, plow_blade, plow_beacon, plow_wheel)
 
     # =========================================================================
-    # СКАНИРОВАНИЕ ОКОН И ОСЫПАНИЕ СУГРОБОВ ПРИ СДВИГЕ
+    # СКАНИРОВАНИЕ ОКОН И АККУРАТНОЕ ОСЫПАНИЕ БЕЗ «ГОР СНЕГА»
     # =========================================================================
     def _scan_windows(self, initial: bool = False):
         updated = {}
@@ -836,6 +875,9 @@ class AtmosphereSnowApp:
         if not initial and self.pile_enabled.get():
             self._shed_snow_from_moved_windows(updated)
 
+        if updated != self.window_bounds:
+            self._garland_dirty = True
+
         self.window_bounds = updated
         fg = user32.GetForegroundWindow()
         self.active_hwnd = fg if (fg in updated and not self._is_own_window(fg)) else None
@@ -850,40 +892,44 @@ class AtmosphereSnowApp:
         for hwnd, old_b in self.window_bounds.items():
             new_b = new_bounds.get(hwnd)
             moved = (new_b is None) or (
-                abs(old_b[0] - new_b[0]) > 3
-                or abs(old_b[1] - new_b[1]) > 3
-                or abs(old_b[2] - new_b[2]) > 3
+                abs(old_b[0] - new_b[0]) > 4
+                or abs(old_b[1] - new_b[1]) > 4
+                or abs(old_b[2] - new_b[2]) > 4
             )
             if moved:
                 c0 = max(0, int(old_b[0] // self.pile_step))
                 c1 = min(self.pile_cols - 1, int(old_b[2] // self.pile_step))
                 top_y = old_b[1]
-                for col in range(c0, c1 + 1):
-                    if self.pile_owner[col] == hwnd and self.pile[col] > 0.8:
-                        h = self.pile[col]
-                        for _ in range(2):
-                            if len(self.falling_chunks) < len(self.chunk_pool):
-                                self.falling_chunks.append(
-                                    {
-                                        "x": float(col * self.pile_step + random.uniform(0, self.pile_step)),
-                                        "y": float(top_y - h),
-                                        "vx": random.uniform(-2.2, 2.2),
-                                        "vy": random.uniform(0.4, 2.2),
-                                        "r": min(5.5, max(2.4, h * 0.28)),
-                                        "color": c_col,
-                                    }
-                                )
+                for col in range(c0, c1 + 1, 2):
+                    if self.pile_owner[col] == hwnd and self.pile[col] > 1.5:
+                        h = min(10.0, self.pile[col])
+                        if len(self.falling_chunks) < len(self.chunk_pool):
+                            self.falling_chunks.append(
+                                {
+                                    "x": float(col * self.pile_step + 2),
+                                    "y": float(top_y - h),
+                                    "vx": random.uniform(-1.2, 1.2),
+                                    "vy": random.uniform(0.3, 1.4),
+                                    "r": min(2.8, max(1.6, h * 0.22)),
+                                    "color": c_col,
+                                }
+                            )
                         self.pile[col] = 0.0
                         self.pile_owner[col] = 0
+                        if col + 1 < self.pile_cols and self.pile_owner[col + 1] == hwnd:
+                            self.pile[col + 1] = 0.0
+                            self.pile_owner[col + 1] = 0
 
     def _windows_loop(self):
         if not self.dragging:
             self._scan_windows()
-        self.root.after(120, self._windows_loop)
+        self.root.after(140, self._windows_loop)
 
     def _blink_loop(self):
-        self.blink_phase = (self.blink_phase + 1) % 48
-        self.root.after(260, self._blink_loop)
+        if not self.dragging:
+            self.blink_phase = (self.blink_phase + 1) % 48
+            self._garland_dirty = True
+        self.root.after(280, self._blink_loop)
 
     def _active_season(self) -> str:
         return get_current_season() if self.auto_season.get() else self.season.get()
@@ -930,64 +976,49 @@ class AtmosphereSnowApp:
 
         return best_y, owner
 
-    def _render_aurora_smooth(self):
-        if not self.aurora_enabled.get():
-            self.canvas.itemconfigure(self.aurora_img_id, state="hidden")
+    def _render_aurora_waves(self):
+        if not self.aurora_enabled.get() or self.dragging:
+            for lid in self.aurora_lines:
+                self.canvas.itemconfigure(lid, state="hidden")
             return
 
-        if HAS_PIL:
-            w_sub = max(240, self.screen_w // 3)
-            h_sub = 56
-            img = Image.new("RGBA", (w_sub, h_sub), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img, "RGBA")
-
-            bands = [
-                ((16, 185, 129, 78), 0.7, 0.0),
-                ((45, 212, 191, 68), 1.0, 1.8),
-                ((56, 189, 248, 56), 1.3, 3.5),
-                ((168, 85, 247, 50), 0.9, 5.1),
-            ]
-            for rgba, freq, phase_off in bands:
-                pts = []
-                steps = 28
-                for i in range(steps + 1):
-                    t_norm = i / steps
-                    px = t_norm * w_sub
-                    wave = math.sin(self.anim_phase * 0.8 + t_norm * 6.5 * freq + phase_off)
-                    py = 14 + 14 * (0.5 + 0.5 * wave) + 5 * math.cos(self.anim_phase * 1.2 + t_norm * 11.0)
-                    pts.append((px, py))
-                poly = [(0, 0)] + pts + [(w_sub, 0)]
-                draw.polygon(poly, fill=rgba)
-
-            img = img.filter(ImageFilter.GaussianBlur(radius=9))
-            img = img.resize((self.screen_w, h_sub * 3), Image.Resampling.BILINEAR)
-            self.aurora_photo = ImageTk.PhotoImage(img)
-            self.canvas.itemconfigure(self.aurora_img_id, image=self.aurora_photo, state="normal")
-            self.canvas.coords(self.aurora_img_id, 0, 0)
-        else:
-            self.canvas.itemconfigure(self.aurora_img_id, state="hidden")
+        segs = 18
+        for idx, lid in enumerate(self.aurora_lines):
+            base_y = 14.0 + idx * 5.0
+            amp = 7.0 + (idx % 3) * 3.5
+            freq = 0.0045 + idx * 0.0007
+            spd = self.anim_phase * (0.9 + idx * 0.14)
+            coords = []
+            for k in range(segs + 1):
+                x = (self.screen_w * k) / segs
+                y = base_y + amp * math.sin(x * freq + spd + idx * 0.9)
+                coords.extend([x, y])
+            self.canvas.coords(lid, *coords)
+            self.canvas.itemconfigure(lid, width=6.0 + (idx % 2) * 2.5, state="normal")
 
     def _anim_loop(self):
-        self.anim_phase += 0.055
-        if self.storm_timer > 0:
-            self.storm_timer -= 1
+        if not self.dragging:
+            self.anim_phase += 0.055
+            if self.storm_timer > 0:
+                self.storm_timer -= 1
 
-        if self.fireworks_enabled.get():
-            self.fw_ticks -= 1
-            if self.fw_ticks <= 0:
-                self._spawn_firework_burst()
-                self.fw_ticks = max(1, int(self.firework_interval.get() * (1000 / 28)))
+            if self.fireworks_enabled.get():
+                self.fw_ticks -= 1
+                if self.fw_ticks <= 0:
+                    self._spawn_firework_burst()
+                    self.fw_ticks = max(1, int(self.firework_interval.get() * (1000 / 28)))
 
         s = self._active_season()
         tb_top = get_taskbar_top(self.screen_h)
-        storm_mult = 2.2 if self.storm_timer > 0 else 1.0
+        storm_boost = 1.8 if self.storm_timer > 0 else 1.0
+        blizzard_lvl = float(self.blizzard_var.get()) + (1.6 if self.storm_timer > 0 else 0.0)
         cap_h = float(self.pile_max_cap.get())
 
-        self._render_aurora_smooth()
+        self._render_aurora_waves()
 
         show_weather = self.weather_enabled.get()
-        base_spd = self.speed_var.get() * storm_mult
-        wind = self.wind_var.get() + (2.4 if self.storm_timer > 0 else 0.0)
+        base_spd = self.speed_var.get() * storm_boost * (1.0 + blizzard_lvl * 0.25)
+        wind = self.wind_var.get() + blizzard_lvl * 1.15
 
         target_n = min(len(self.particle_pool), self.count_var.get())
         while len(self.particles) < target_n:
@@ -1007,71 +1038,73 @@ class AtmosphereSnowApp:
 
             p = self.particles[idx]
             prev_y = p["y"]
-            p["phase"] += 0.05
-            p["ang"] += p["spin"]
+            p["phase"] += 0.05 + blizzard_lvl * 0.03
+            p["ang"] += p["spin"] * (1.0 + blizzard_lvl * 0.6)
 
-            if s == "summer":
-                p["x"] += math.cos(p["phase"]) * 1.1 + wind * 0.25
-                p["y"] += math.sin(p["phase"] * 0.8) * 0.8 - 0.12
-                if p["y"] < 24:
-                    p["y"] = tb_top - 30
-            else:
-                p["y"] += base_spd * p["spd"]
-                p["x"] += math.sin(p["phase"]) * 0.85 + wind
+            if not self.dragging:
+                if s == "summer":
+                    p["x"] += math.cos(p["phase"]) * 1.1 + wind * 0.25
+                    p["y"] += math.sin(p["phase"] * 0.8) * 0.8 - 0.12
+                    if p["y"] < 24:
+                        p["y"] = tb_top - 30
+                else:
+                    p["y"] += base_spd * p["spd"]
+                    p["x"] += math.sin(p["phase"]) * (0.85 + blizzard_lvl * 0.6) + wind
 
-            if p["x"] < -12:
-                p["x"] = self.screen_w + 12
-            elif p["x"] > self.screen_w + 12:
-                p["x"] = -12
+                if p["x"] < -12:
+                    p["x"] = self.screen_w + 12
+                elif p["x"] > self.screen_w + 12:
+                    p["x"] = -12
 
-            if s != "summer":
-                col = max(0, min(self.pile_cols - 1, int(p["x"] // self.pile_step)))
-                surf_y, owner_hwnd = self._find_landing_surface(p["x"], prev_y, p["y"], tb_top)
-                pile_h = self.pile[col] if self.pile_enabled.get() else 0.0
+                if s != "summer":
+                    col = max(0, min(self.pile_cols - 1, int(p["x"] // self.pile_step)))
+                    surf_y, owner_hwnd = self._find_landing_surface(p["x"], prev_y, p["y"], tb_top)
+                    pile_h = self.pile[col] if self.pile_enabled.get() else 0.0
 
-                if p["y"] >= surf_y - pile_h:
-                    if self.pile_enabled.get():
-                        for d_col, w in ((-1, 0.3), (0, 0.7), (1, 0.3)):
-                            c = col + d_col
-                            if 0 <= c < self.pile_cols:
-                                if owner_hwnd:
-                                    self.pile_owner[c] = owner_hwnd
-                                next_h = self.pile[c] + w
-                                if next_h >= cap_h or (surf_y - next_h) <= 2.0:
-                                    if len(self.falling_chunks) < len(self.chunk_pool):
-                                        self.falling_chunks.append(
-                                            {
-                                                "x": float(c * self.pile_step + 2),
-                                                "y": float(surf_y - next_h),
-                                                "vx": random.uniform(-1.8, 1.8),
-                                                "vy": random.uniform(0.3, 1.6),
-                                                "r": random.uniform(2.5, 4.2),
-                                                "color": c_col,
-                                            }
-                                        )
-                                    self.pile[c] = max(2.0, next_h * 0.45)
-                                else:
-                                    self.pile[c] = next_h
-                    p.update(self._spawn_particle(random_y=False))
+                    if p["y"] >= surf_y - pile_h:
+                        if self.pile_enabled.get():
+                            for d_col, w in ((-1, 0.25), (0, 0.65), (1, 0.25)):
+                                c = col + d_col
+                                if 0 <= c < self.pile_cols:
+                                    if owner_hwnd:
+                                        self.pile_owner[c] = owner_hwnd
+                                    next_h = self.pile[c] + w
+                                    if next_h >= cap_h or (surf_y - next_h) <= 2.0:
+                                        if len(self.falling_chunks) < len(self.chunk_pool):
+                                            self.falling_chunks.append(
+                                                {
+                                                    "x": float(c * self.pile_step + 2),
+                                                    "y": float(surf_y - next_h),
+                                                    "vx": random.uniform(-1.0, 1.0),
+                                                    "vy": random.uniform(0.3, 1.2),
+                                                    "r": random.uniform(1.7, 2.5),
+                                                    "color": c_col,
+                                                }
+                                            )
+                                        self.pile[c] = max(1.5, next_h * 0.65)
+                                    else:
+                                        self.pile[c] = next_h
+                        p.update(self._spawn_particle(random_y=False))
 
             self._render_particle(slot, p, s)
 
-        alive_chunks = []
-        for ch in self.falling_chunks:
-            prev_cy = ch["y"]
-            ch["x"] += ch["vx"]
-            ch["y"] += ch["vy"]
-            ch["vy"] += 0.28
-            col = max(0, min(self.pile_cols - 1, int(ch["x"] // self.pile_step)))
-            surf_y, owner_hwnd = self._find_landing_surface(ch["x"], prev_cy, ch["y"], tb_top)
-            if ch["y"] >= surf_y - self.pile[col]:
-                if self.pile_enabled.get() and s != "summer":
-                    self.pile[col] = min(cap_h, self.pile[col] + 0.9)
-                    if owner_hwnd:
-                        self.pile_owner[col] = owner_hwnd
-            else:
-                alive_chunks.append(ch)
-        self.falling_chunks = alive_chunks
+        if not self.dragging:
+            alive_chunks = []
+            for ch in self.falling_chunks:
+                prev_cy = ch["y"]
+                ch["x"] += ch["vx"]
+                ch["y"] += ch["vy"]
+                ch["vy"] += 0.24
+                col = max(0, min(self.pile_cols - 1, int(ch["x"] // self.pile_step)))
+                surf_y, owner_hwnd = self._find_landing_surface(ch["x"], prev_cy, ch["y"], tb_top)
+                if ch["y"] >= surf_y - self.pile[col]:
+                    if self.pile_enabled.get() and s != "summer":
+                        self.pile[col] = min(cap_h, self.pile[col] + 0.5)
+                        if owner_hwnd:
+                            self.pile_owner[col] = owner_hwnd
+                else:
+                    alive_chunks.append(ch)
+            self.falling_chunks = alive_chunks
 
         for idx, cid in enumerate(self.chunk_pool):
             if idx < len(self.falling_chunks):
@@ -1106,7 +1139,7 @@ class AtmosphereSnowApp:
 
         self._update_snowplow(s, tb_top)
 
-        if self.cursor_trail.get():
+        if not self.dragging and self.cursor_trail.get():
             pt = wintypes.POINT()
             if user32.GetCursorPos(ctypes.byref(pt)):
                 if abs(pt.x - self.last_mouse[0]) + abs(pt.y - self.last_mouse[1]) > 5:
@@ -1128,22 +1161,23 @@ class AtmosphereSnowApp:
                     )
                     self.last_mouse = (pt.x, pt.y)
 
-        self.sparks = [
-            {**sp, "x": sp["x"] + sp["vx"], "y": sp["y"] + sp["vy"], "life": sp["life"] - 1}
-            for sp in self.sparks
-            if sp["life"] > 1
-        ]
-        self.fireworks = [
-            {
-                **fw,
-                "x": fw["x"] + fw["vx"],
-                "y": fw["y"] + fw["vy"],
-                "vy": fw["vy"] + 0.14,
-                "life": fw["life"] - 1,
-            }
-            for fw in self.fireworks
-            if fw["life"] > 1
-        ]
+        if not self.dragging:
+            self.sparks = [
+                {**sp, "x": sp["x"] + sp["vx"], "y": sp["y"] + sp["vy"], "life": sp["life"] - 1}
+                for sp in self.sparks
+                if sp["life"] > 1
+            ]
+            self.fireworks = [
+                {
+                    **fw,
+                    "x": fw["x"] + fw["vx"],
+                    "y": fw["y"] + fw["vy"],
+                    "vy": fw["vy"] + 0.14,
+                    "life": fw["life"] - 1,
+                }
+                for fw in self.fireworks
+                if fw["life"] > 1
+            ]
 
         all_sp = self.sparks + self.fireworks
         for idx, sid in enumerate(self.spark_pool):
@@ -1155,17 +1189,20 @@ class AtmosphereSnowApp:
             else:
                 self.canvas.itemconfigure(sid, state="hidden")
 
-        self._render_garlands()
-        self.root.after(28, self._anim_loop)
+        if self._garland_dirty and not self.dragging:
+            self._render_garlands()
+            self._garland_dirty = False
+
+        self.root.after(30, self._anim_loop)
 
     def _target_plow_y(self, px: float, tb_top: int) -> float:
-        """Целевая высота: снизу на панели/нижней линии, либо взбирается на верхнюю кромку окна Windows."""
+        """Маршрут: едет внизу, при наезде на окно забирается на его верхнюю кромку."""
         target = float(tb_top)
         for _hwnd, b in self.window_bounds.items():
             l, t, r, btm = b
-            if l - 12 <= px <= r + 12 and t < btm and t < target:
+            if l - 16 <= px <= r + 16 and t < btm and t < target:
                 target = float(t)
-        return max(18.0, target)
+        return max(16.0, target)
 
     def _update_snowplow(self, season: str, tb_top: int):
         plow_body, plow_blade, plow_beacon, plow_wheel = self.plow_pool
@@ -1179,9 +1216,10 @@ class AtmosphereSnowApp:
             return
 
         if not self.plow_active:
-            self.plow_ticks += 1
+            if not self.dragging:
+                self.plow_ticks += 1
             mode = self.plow_mode.get()
-            time_ok = self.plow_ticks >= max(1, int(self.plow_interval.get() * (1000 / 28)))
+            time_ok = self.plow_ticks >= max(1, int(self.plow_interval.get() * (1000 / 30)))
             max_p = max(self.pile) if self.pile else 0.0
             thresh_ok = max_p >= float(self.plow_threshold.get())
 
@@ -1193,7 +1231,7 @@ class AtmosphereSnowApp:
             if start and (max_p > 0.5 or self.plow_force_once):
                 self.plow_active = True
                 self.plow_ticks = 0
-                self.plow_x = -80.0
+                self.plow_x = -75.0
                 self.plow_y = float(tb_top)
             else:
                 for obj in self.plow_pool:
@@ -1203,20 +1241,18 @@ class AtmosphereSnowApp:
         spd = float(self.plow_speed.get())
         blade_w = float(self.plow_blade_w.get())
 
-        self.plow_x += spd
+        if not self.dragging:
+            self.plow_x += spd
+            goal_y = self._target_plow_y(self.plow_x + blade_w * 0.5, tb_top)
+            climb_step = max(4.0, spd * 0.85)
+            if self.plow_y > goal_y:
+                self.plow_y = max(goal_y, self.plow_y - climb_step)
+            elif self.plow_y < goal_y:
+                self.plow_y = min(goal_y, self.plow_y + climb_step)
+
         px = self.plow_x
-        goal_y = self._target_plow_y(px + blade_w * 0.5, tb_top)
-
-        # Плавный заезд вверх на окно или спуск вниз, когда окно кончилось
-        climb_step = max(3.5, spd * 0.72)
-        if self.plow_y > goal_y:
-            self.plow_y = max(goal_y, self.plow_y - climb_step)
-        elif self.plow_y < goal_y:
-            self.plow_y = min(goal_y, self.plow_y + climb_step)
-
         py = self.plow_y
 
-        # Очищаем сугробы и листья под ножом машины (на окне или внизу)
         col_c = int((px + blade_w * 0.6) // self.pile_step)
         span_cols = max(2, int(blade_w // self.pile_step) + 1)
         for c in range(max(0, col_c - span_cols), min(self.pile_cols, col_c + 2)):
@@ -1226,7 +1262,7 @@ class AtmosphereSnowApp:
                 self.pile[c] = 0.0
                 self.pile_owner[c] = 0
 
-        if px > self.screen_w + 95:
+        if px > self.screen_w + 90:
             self.plow_active = False
             self.plow_force_once = False
             for obj in self.plow_pool:
@@ -1311,7 +1347,7 @@ class AtmosphereSnowApp:
         colors = palettes.get(self.garland_palette.get(), palettes["classic"])
         mode = self.garland_mode.get()
         style = self.garland_style.get()
-        spacing = max(22, int(self.garland_spacing.get() * max(0.8, min(1.35, sc))))
+        spacing = max(24, int(self.garland_spacing.get() * max(0.85, min(1.35, sc))))
 
         lines = []
         if self.top_garland.get():
@@ -1396,7 +1432,7 @@ class AtmosphereSnowApp:
                 r_bulb = max(3.5, rad_x * 1.0)
                 cy_b = top_b + r_bulb * 0.9
                 pts = []
-                steps = 12
+                steps = 10
                 for k in range(steps):
                     ang = (math.tau * k) / steps
                     pts.extend([bx + math.cos(ang) * r_bulb, cy_b + math.sin(ang) * r_bulb])
@@ -1415,5 +1451,5 @@ class AtmosphereSnowApp:
 
 
 if __name__ == "__main__":
-    app = AtmosphereSnowApp()
+    app = AtmosphereApp()
     app.root.mainloop()

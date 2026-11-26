@@ -16,12 +16,25 @@ try:
 except ImportError:
     winreg = None
 
+# Правильное определение типов WinAPI для избежания ошибок
 user32 = ctypes.windll.user32
 dwmapi = ctypes.windll.dwmapi
 try:
     user32.SetProcessDPIAware()
 except Exception:
     pass
+
+# Теперь используем явные типы, чтобы Python их точно видел
+DWORD = wintypes.DWORD
+RECT = wintypes.RECT
+HWND = wintypes.HWND
+BOOL = wintypes.BOOL
+LPARAM = wintypes.LPARAM
+POINT = wintypes.POINT
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", DWORD), ("rcMonitor", RECT),
+                ("rcWork", RECT), ("dwFlags", DWORD)]
 
 class MONITORINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),

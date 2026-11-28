@@ -1,15 +1,10 @@
-
-
-
-Значок PY
-snow_garland
 # -*- coding: utf-8 -*-
 """
-Времена года и гирлянда: снег, листья, конфетти, пузыри, дождь, звёзды...
-Гирлянда на окнах, сугробы с физикой, снеговики, Дед Мороз, северное сияние,
-солнце и луна, ёлка, фейерверки, отсчёт до праздника и многое другое.
+AuraDesk — живая атмосфера рабочего стола: снег, погода на неделю,
+гирлянда, сугробы с физикой, снеговики, Дед Мороз, северное сияние,
+солнце, луна, звёзды и фейерверки.
 
-Запуск: python snow_garland.py   (или pythonw snow_garland.py - без консоли)
+Запуск: python auradesk.py   (или pythonw auradesk.py — без консоли)
 Нужен только Python 3.8+ для Windows. Сторонние библиотеки не нужны.
 """
 import colorsys
@@ -25,12 +20,14 @@ import threading
 import time
 import traceback
 import tkinter as tk
+import urllib.parse
+import urllib.request
 from ctypes import wintypes
-from tkinter import colorchooser, messagebox, ttk
+from tkinter import ttk, colorchooser
 
 try:
     import winreg
-except ImportError:  # не Windows
+except ImportError:
     winreg = None
 
 # ---------------------------------------------------------------- WinAPI
@@ -46,121 +43,68 @@ except Exception:
 
 
 class MONITORINFO(ctypes.Structure):
-    _fields_ = [
-        ("cbSize", wintypes.DWORD),
-        ("rcMonitor", wintypes.RECT),
-        ("rcWork", wintypes.RECT),
-        ("dwFlags", wintypes.DWORD),
-    ]
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
 
 
 WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 MONITORENUMPROC = ctypes.WINFUNCTYPE(
-    wintypes.BOOL,
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.POINTER(wintypes.RECT),
-    wintypes.LPARAM,
-)
-WNDPROC = ctypes.WINFUNCTYPE(
-    ctypes.c_ssize_t,
-    wintypes.HWND,
-    wintypes.UINT,
-    wintypes.WPARAM,
-    wintypes.LPARAM,
-)
+    wintypes.BOOL, ctypes.c_void_p, ctypes.c_void_p,
+    ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
+                             wintypes.WPARAM, wintypes.LPARAM)
+WINEVENTPROC = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD,
+                                  wintypes.HWND, ctypes.c_long, ctypes.c_long,
+                                  wintypes.DWORD, wintypes.DWORD)
 
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
-user32.IsWindowVisible.restype = wintypes.BOOL
 user32.IsIconic.argtypes = [wintypes.HWND]
-user32.IsIconic.restype = wintypes.BOOL
 user32.IsZoomed.argtypes = [wintypes.HWND]
-user32.IsZoomed.restype = wintypes.BOOL
 user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.GetWindowLongW.restype = ctypes.c_long
 user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
-user32.SetWindowLongW.restype = ctypes.c_long
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-user32.GetWindowTextLengthW.restype = ctypes.c_int
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-user32.GetWindowRect.restype = wintypes.BOOL
 user32.GetParent.argtypes = [wintypes.HWND]
 user32.GetParent.restype = wintypes.HWND
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
-user32.GetCursorPos.restype = wintypes.BOOL
+user32.WindowFromPoint.argtypes = [wintypes.POINT]
+user32.WindowFromPoint.restype = wintypes.HWND
+user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetAncestor.restype = wintypes.HWND
 user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
-user32.GetMonitorInfoW.restype = wintypes.BOOL
-user32.EnumDisplayMonitors.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    MONITORENUMPROC,
-    wintypes.LPARAM,
-]
-user32.EnumDisplayMonitors.restype = wintypes.BOOL
+user32.EnumDisplayMonitors.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+                                       MONITORENUMPROC, wintypes.LPARAM]
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
 user32.GetAsyncKeyState.restype = ctypes.c_short
-user32.GetForegroundWindow.argtypes = []
 user32.GetForegroundWindow.restype = wintypes.HWND
+user32.SetWinEventHook.argtypes = [wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                   WINEVENTPROC, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
+user32.SetWinEventHook.restype = wintypes.HANDLE
+user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
 user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-user32.GetClassNameW.restype = ctypes.c_int
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-user32.GetWindowThreadProcessId.restype = wintypes.DWORD
 user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-user32.SetForegroundWindow.restype = wintypes.BOOL
 user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-user32.PostMessageW.restype = wintypes.BOOL
 user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.DefWindowProcW.restype = ctypes.c_ssize_t
-user32.CreatePopupMenu.argtypes = []
 user32.CreatePopupMenu.restype = ctypes.c_void_p
 user32.AppendMenuW.argtypes = [ctypes.c_void_p, wintypes.UINT, ctypes.c_size_t, wintypes.LPCWSTR]
-user32.AppendMenuW.restype = wintypes.BOOL
-user32.TrackPopupMenu.argtypes = [
-    ctypes.c_void_p,
-    wintypes.UINT,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    wintypes.HWND,
-    ctypes.c_void_p,
-]
+user32.TrackPopupMenu.argtypes = [ctypes.c_void_p, wintypes.UINT, ctypes.c_int, ctypes.c_int,
+                                  ctypes.c_int, wintypes.HWND, ctypes.c_void_p]
 user32.TrackPopupMenu.restype = ctypes.c_int
 user32.DestroyMenu.argtypes = [ctypes.c_void_p]
-user32.DestroyMenu.restype = wintypes.BOOL
-user32.CreateWindowExW.argtypes = [
-    wintypes.DWORD,
-    wintypes.LPCWSTR,
-    wintypes.LPCWSTR,
-    wintypes.DWORD,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    wintypes.HWND,
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-]
+user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                   wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, wintypes.HWND, ctypes.c_void_p,
+                                   ctypes.c_void_p, ctypes.c_void_p]
 user32.CreateWindowExW.restype = wintypes.HWND
 user32.CreateIconIndirect.argtypes = [ctypes.c_void_p]
 user32.CreateIconIndirect.restype = ctypes.c_void_p
-user32.DestroyIcon.argtypes = [ctypes.c_void_p]
-user32.DestroyIcon.restype = wintypes.BOOL
-user32.RegisterClassW.argtypes = [ctypes.c_void_p]
-user32.RegisterClassW.restype = wintypes.ATOM
-user32.DestroyWindow.argtypes = [wintypes.HWND]
-user32.DestroyWindow.restype = wintypes.BOOL
-user32.GetSystemMetrics.argtypes = [ctypes.c_int]
-user32.GetSystemMetrics.restype = ctypes.c_int
-
 gdi32.CreateBitmap.argtypes = [ctypes.c_int, ctypes.c_int, wintypes.UINT, wintypes.UINT, ctypes.c_void_p]
 gdi32.CreateBitmap.restype = ctypes.c_void_p
-gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
-gdi32.DeleteObject.restype = wintypes.BOOL
-
 shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.c_void_p]
 shell32.Shell_NotifyIconW.restype = wintypes.BOOL
-
 kernel32w.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 kernel32w.GetModuleHandleW.restype = ctypes.c_void_p
 kernel32w.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
@@ -168,26 +112,17 @@ kernel32w.CreateEventW.restype = ctypes.c_void_p
 kernel32w.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
 kernel32w.OpenEventW.restype = ctypes.c_void_p
 kernel32w.SetEvent.argtypes = [ctypes.c_void_p]
-kernel32w.SetEvent.restype = wintypes.BOOL
 kernel32w.WaitForSingleObject.argtypes = [ctypes.c_void_p, wintypes.DWORD]
-kernel32w.WaitForSingleObject.restype = wintypes.DWORD
-kernel32w.CloseHandle.argtypes = [ctypes.c_void_p]
-kernel32w.CloseHandle.restype = wintypes.BOOL
-
 dwmapi.DwmGetWindowAttribute.argtypes = [
-    wintypes.HWND,
-    wintypes.DWORD,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-]
-dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+    wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x80000, 0x20, 0x80
+WS_EX_NOACTIVATE = 0x08000000
+EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 
 
 def get_windows():
-    """Видимые окна сверху вниз: (hwnd, l, t, r, b, maximized)."""
     result = []
 
     def cb(hwnd, _lp):
@@ -202,27 +137,19 @@ def get_windows():
         if user32.GetWindowTextLengthW(hwnd) == 0:
             return True
         r = wintypes.RECT()
-        if dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(r), ctypes.sizeof(r)) != 0:
-            user32.GetWindowRect(hwnd, ctypes.byref(r))
+        if not user32.GetWindowRect(hwnd, ctypes.byref(r)):
+            return True
         if r.right - r.left < 150 or r.bottom - r.top < 80:
             return True
-        result.append((
-            int(hwnd),
-            r.left,
-            r.top,
-            r.right,
-            r.bottom,
-            bool(user32.IsZoomed(hwnd)),
-        ))
+        result.append((int(hwnd), r.left, r.top, r.right, r.bottom,
+                       bool(user32.IsZoomed(hwnd))))
         return True
 
-    cb_ref = WNDENUMPROC(cb)
-    user32.EnumWindows(cb_ref, 0)
+    user32.EnumWindows(WNDENUMPROC(cb), 0)
     return result
 
 
 def get_monitors():
-    """Мониторы: [{'mon': (l,t,r,b), 'work': (l,t,r,b)}] слева направо."""
     res = []
 
     def cb(hmon, _hdc, _lprc, _lp):
@@ -230,23 +157,19 @@ def get_monitors():
         mi.cbSize = ctypes.sizeof(MONITORINFO)
         if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
             m, w = mi.rcMonitor, mi.rcWork
-            res.append({
-                "mon": (m.left, m.top, m.right, m.bottom),
-                "work": (w.left, w.top, w.right, w.bottom),
-            })
+            res.append({"mon": (m.left, m.top, m.right, m.bottom),
+                        "work": (w.left, w.top, w.right, w.bottom)})
         return True
 
-    cb_ref = MONITORENUMPROC(cb)
-    user32.EnumDisplayMonitors(None, None, cb_ref, 0)
+    user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(cb), 0)
     res.sort(key=lambda r: r["mon"][0])
     return res
 
 
 def cursor_pos():
     p = wintypes.POINT()
-    if not user32.GetCursorPos(ctypes.byref(p)):
-        return 0, 0
-    return int(p.x), int(p.y)
+    user32.GetCursorPos(ctypes.byref(p))
+    return p.x, p.y
 
 
 def key_down(vk):
@@ -258,21 +181,19 @@ def foreground_hwnd():
 
 
 def fullscreen_foreground(mon_rects):
-    """True, если поверх всего окно на весь монитор (игра, видео, презентация)."""
     hwnd = user32.GetForegroundWindow()
     if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
         return False
     pid = wintypes.DWORD(0)
     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    if int(pid.value) == os.getpid():
+    if pid.value == os.getpid():
         return False
     buf = ctypes.create_unicode_buffer(128)
     user32.GetClassNameW(hwnd, buf, 128)
     if buf.value in ("Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"):
         return False
     r = wintypes.RECT()
-    if not user32.GetWindowRect(hwnd, ctypes.byref(r)):
-        return False
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
     for (ml, mt, mr, mb) in mon_rects:
         if r.left <= ml + 1 and r.top <= mt + 1 and r.right >= mr - 1 and r.bottom >= mb - 1:
             return True
@@ -280,7 +201,6 @@ def fullscreen_foreground(mon_rects):
 
 
 def visible_top_edges(windows, skip_max):
-    """Незакрытые участки верхних границ окон: (hwnd, a, c, top, left, width)."""
     segs = []
     for i, (hw, l, t, r, b, mx) in enumerate(windows):
         if mx and skip_max:
@@ -306,52 +226,30 @@ def visible_top_edges(windows, skip_max):
 
 # ---------------------------------------------------------------- Значок в трее
 class WNDCLASSW(ctypes.Structure):
-    _fields_ = [
-        ("style", wintypes.UINT),
-        ("lpfnWndProc", WNDPROC),
-        ("cbClsExtra", ctypes.c_int),
-        ("cbWndExtra", ctypes.c_int),
-        ("hInstance", ctypes.c_void_p),
-        ("hIcon", ctypes.c_void_p),
-        ("hCursor", ctypes.c_void_p),
-        ("hbrBackground", ctypes.c_void_p),
-        ("lpszMenuName", wintypes.LPCWSTR),
-        ("lpszClassName", wintypes.LPCWSTR),
-    ]
+    _fields_ = [("style", wintypes.UINT), ("lpfnWndProc", WNDPROC),
+                ("cbClsExtra", ctypes.c_int), ("cbWndExtra", ctypes.c_int),
+                ("hInstance", ctypes.c_void_p), ("hIcon", ctypes.c_void_p),
+                ("hCursor", ctypes.c_void_p), ("hbrBackground", ctypes.c_void_p),
+                ("lpszMenuName", wintypes.LPCWSTR), ("lpszClassName", wintypes.LPCWSTR)]
 
 
 class NOTIFYICONDATAW(ctypes.Structure):
-    _fields_ = [
-        ("cbSize", wintypes.DWORD),
-        ("hWnd", wintypes.HWND),
-        ("uID", wintypes.UINT),
-        ("uFlags", wintypes.UINT),
-        ("uCallbackMessage", wintypes.UINT),
-        ("hIcon", ctypes.c_void_p),
-        ("szTip", wintypes.WCHAR * 128),
-        ("dwState", wintypes.DWORD),
-        ("dwStateMask", wintypes.DWORD),
-        ("szInfo", wintypes.WCHAR * 256),
-        ("uVersion", wintypes.UINT),
-        ("szInfoTitle", wintypes.WCHAR * 64),
-        ("dwInfoFlags", wintypes.DWORD),
-        ("guidItem", ctypes.c_ubyte * 16),
-        ("hBalloonIcon", ctypes.c_void_p),
-    ]
+    _fields_ = [("cbSize", wintypes.DWORD), ("hWnd", wintypes.HWND), ("uID", wintypes.UINT),
+                ("uFlags", wintypes.UINT), ("uCallbackMessage", wintypes.UINT),
+                ("hIcon", ctypes.c_void_p), ("szTip", wintypes.WCHAR * 128),
+                ("dwState", wintypes.DWORD), ("dwStateMask", wintypes.DWORD),
+                ("szInfo", wintypes.WCHAR * 256), ("uVersion", wintypes.UINT),
+                ("szInfoTitle", wintypes.WCHAR * 64), ("dwInfoFlags", wintypes.DWORD),
+                ("guidItem", ctypes.c_ubyte * 16), ("hBalloonIcon", ctypes.c_void_p)]
 
 
 class ICONINFO(ctypes.Structure):
-    _fields_ = [
-        ("fIcon", wintypes.BOOL),
-        ("xHotspot", wintypes.DWORD),
-        ("yHotspot", wintypes.DWORD),
-        ("hbmMask", ctypes.c_void_p),
-        ("hbmColor", ctypes.c_void_p),
-    ]
+    _fields_ = [("fIcon", wintypes.BOOL), ("xHotspot", wintypes.DWORD),
+                ("yHotspot", wintypes.DWORD), ("hbmMask", ctypes.c_void_p),
+                ("hbmColor", ctypes.c_void_p)]
 
 
 def make_icon(size=32):
-    """Рисуем иконку-снежинку прямо в памяти (без файлов)."""
     px = (ctypes.c_ubyte * (size * size * 4))()
     c = (size - 1) / 2.0
     R = size / 2.0
@@ -370,9 +268,7 @@ def make_icon(size=32):
             if r > R - 0.5:
                 continue
             t = y / float(size)
-            b = int(0xE8 + (0xA0 - 0xE8) * t)
-            g = int(0x5C + (0x4C - 0x5C) * t)
-            rr = int(0x6C + (0xF0 - 0x6C) * t)
+            b, g, rr = int(0xF5 + (0xB0 - 0xF5) * t), int(0x7C + (0x4C - 0x7C) * t), int(0x38 + (0xA8 - 0x38) * t)
             white = False
             for ax, ay in arms:
                 if seg(dx, dy, 0, 0, ax, ay, R * 0.82, 1.1):
@@ -391,30 +287,18 @@ def make_icon(size=32):
                 b = g = rr = 255
             i = (y * size + x) * 4
             px[i], px[i + 1], px[i + 2], px[i + 3] = b, g, rr, 255
-
     mask = (ctypes.c_ubyte * (size * size // 8))()
     hbm_color = gdi32.CreateBitmap(size, size, 1, 32, ctypes.addressof(px))
     hbm_mask = gdi32.CreateBitmap(size, size, 1, 1, ctypes.addressof(mask))
-    if not hbm_color or not hbm_mask:
-        if hbm_color:
-            gdi32.DeleteObject(hbm_color)
-        if hbm_mask:
-            gdi32.DeleteObject(hbm_mask)
-        raise OSError("icon bitmaps")
-    try:
-        ii = ICONINFO(1, 0, 0, hbm_mask, hbm_color)
-        hicon = user32.CreateIconIndirect(ctypes.byref(ii))
-        if not hicon:
-            raise OSError("icon")
-        return hicon
-    finally:
-        gdi32.DeleteObject(hbm_color)
-        gdi32.DeleteObject(hbm_mask)
+    ii = ICONINFO(1, 0, 0, hbm_mask, hbm_color)
+    hicon = user32.CreateIconIndirect(ctypes.byref(ii))
+    if not hicon:
+        raise OSError("icon")
+    return hicon
 
 
 class Tray:
-    """Значок у часов. Левый или правый клик — меню: открыть настройки / пауза / выход."""
-    CLASS = "SnowGarlandTrayWnd"
+    CLASS = "AuraDeskTrayWnd"
     WM_TRAY = 0x0400 + 20
 
     def __init__(self, tip, on_cmd, get_state):
@@ -426,9 +310,8 @@ class Tray:
         wc.hInstance = hinst
         wc.lpszClassName = self.CLASS
         user32.RegisterClassW(ctypes.byref(wc))
-        self.hwnd = user32.CreateWindowExW(
-            0, self.CLASS, "SnowGarland", 0, 0, 0, 0, 0, None, None, hinst, None
-        )
+        self.hwnd = user32.CreateWindowExW(0, self.CLASS, "AuraDesk", 0, 0, 0, 0, 0,
+                                           None, None, hinst, None)
         if not self.hwnd:
             raise OSError("tray window")
         self.hicon = make_icon()
@@ -441,11 +324,6 @@ class Tray:
         self.nid.hIcon = self.hicon
         self.nid.szTip = tip[:120]
         if not shell32.Shell_NotifyIconW(0, ctypes.byref(self.nid)):
-            if self.hicon:
-                user32.DestroyIcon(self.hicon)
-                self.hicon = None
-            user32.DestroyWindow(self.hwnd)
-            self.hwnd = None
             raise OSError("tray icon")
 
     def _proc(self, hwnd, msg, wp, lp):
@@ -462,476 +340,190 @@ class Tray:
         pt = wintypes.POINT()
         user32.GetCursorPos(ctypes.byref(pt))
         m = user32.CreatePopupMenu()
-        if not m:
-            return
-        try:
-            user32.AppendMenuW(m, 0, 1, "Открыть настройки")
-            user32.AppendMenuW(
-                m, 0, 2, "Приостановить эффекты" if st["on"] else "Включить эффекты"
-            )
-            user32.AppendMenuW(m, 8 if st["auto"] else 0, 3, "Запускать вместе с Windows")
-            user32.AppendMenuW(m, 0x800, 0, None)
-            user32.AppendMenuW(m, 0, 9, "Выход")
-            user32.SetForegroundWindow(self.hwnd)
-            cmd = user32.TrackPopupMenu(m, 0x1A2, pt.x, pt.y, 0, self.hwnd, None)
-            user32.PostMessageW(self.hwnd, 0, 0, 0)
-        finally:
-            user32.DestroyMenu(m)
+        user32.AppendMenuW(m, 0, 1, "Открыть AuraDesk")
+        user32.AppendMenuW(m, 0, 2, "Приостановить эффекты" if st["on"] else "Включить эффекты")
+        user32.AppendMenuW(m, 8 if st["auto"] else 0, 3, "Запускать вместе с Windows")
+        user32.AppendMenuW(m, 0x800, 0, None)
+        user32.AppendMenuW(m, 0, 9, "Выход")
+        user32.SetForegroundWindow(self.hwnd)
+        cmd = user32.TrackPopupMenu(m, 0x1A2, pt.x, pt.y, 0, self.hwnd, None)
+        user32.PostMessageW(self.hwnd, 0, 0, 0)
+        user32.DestroyMenu(m)
         if cmd:
             self.on_cmd(cmd)
 
     def remove(self):
         try:
-            if self.hwnd:
-                shell32.Shell_NotifyIconW(2, ctypes.byref(self.nid))
-        except Exception:
-            pass
-        try:
-            if self.hicon:
-                user32.DestroyIcon(self.hicon)
-                self.hicon = None
-        except Exception:
-            pass
-        try:
-            if self.hwnd:
-                user32.DestroyWindow(self.hwnd)
-                self.hwnd = None
+            shell32.Shell_NotifyIconW(2, ctypes.byref(self.nid))
         except Exception:
             pass
 
 
-SHOW_EVENT = "SnowGarland_show_settings"
+SHOW_EVENT = "AuraDesk_show_settings"
 
 
-def start_show_listener(flag, stop_event=None):
-    """Второй запуск exe будит первый: откроется окно настроек."""
+def start_show_listener(flag):
     h = kernel32w.CreateEventW(None, False, False, SHOW_EVENT)
-    if not h:
-        return
 
     def loop():
-        try:
-            while True:
-                if stop_event is not None and stop_event.is_set():
-                    break
-                rc = kernel32w.WaitForSingleObject(h, 500)
-                if rc == 0:
-                    flag.set()
-                elif rc == 0xFFFFFFFF:
-                    break
-        finally:
-            kernel32w.CloseHandle(h)
-
+        while True:
+            if kernel32w.WaitForSingleObject(h, 1000) == 0:
+                flag.set()
     threading.Thread(target=loop, daemon=True).start()
-
-
-def signal_existing():
-    h = kernel32w.OpenEventW(0x2, False, SHOW_EVENT)
-    if h:
-        try:
-            kernel32w.SetEvent(h)
-        finally:
-            kernel32w.CloseHandle(h)
 
 
 # ---------------------------------------------------------------- Настройки
 APPDATA = os.environ.get("APPDATA") or os.path.dirname(os.path.abspath(sys.argv[0]))
-CONFIG_DIR = os.path.join(APPDATA, "SnowGarland")
+CONFIG_DIR = os.path.join(APPDATA, "AuraDesk")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 LOG_PATH = os.path.join(CONFIG_DIR, "error.log")
 
-KINDS = [
-    ("snow", "Снежинки"),
-    ("leaf", "Осенние листья"),
-    ("spring", "Весенние листья и лепестки"),
-    ("firefly", "Светлячки"),
-    ("confetti", "Конфетти"),
-    ("bubble", "Мыльные пузыри"),
-    ("heart", "Сердечки"),
-    ("star", "Падающие звёзды"),
-    ("rain", "Дождь"),
-    ("lantern", "Небесные фонарики"),
-]
-KIND_FACTOR = {
-    "firefly": 0.5,
-    "lantern": 0.15,
-    "bubble": 0.35,
-    "star": 0.3,
-    "heart": 0.6,
-    "confetti": 0.9,
-    "rain": 1.2,
-}
-SEASON_KINDS = {
-    "winter": ["snow"],
-    "autumn": ["leaf"],
-    "spring": ["spring"],
-    "summer": ["firefly"],
-}
+KINDS = [("snow", "Снежинки"), ("leaf", "Осенние листья"),
+         ("spring", "Весенние листья и лепестки"), ("firefly", "Светлячки"),
+         ("confetti", "Конфетти"), ("bubble", "Мыльные пузыри"),
+         ("heart", "Сердечки"), ("star", "Падающие звёзды"),
+         ("rain", "Дождь"), ("lantern", "Небесные фонарики")]
+KIND_FACTOR = {"firefly": 0.55, "lantern": 0.2, "bubble": 0.4, "star": 0.35,
+               "heart": 0.65, "confetti": 0.95, "rain": 1.35}
+SEASON_KINDS = {"winter": ["snow"], "autumn": ["leaf"],
+                "spring": ["spring"], "summer": ["firefly"]}
 
 DEFAULTS = {
     # что падает
-    "season": "Авто",
-    "fall_mode": "По сезону",
-    "k_snow": True,
-    "k_leaf": False,
-    "k_spring": False,
-    "k_firefly": False,
-    "k_confetti": False,
-    "k_bubble": False,
-    "k_heart": False,
-    "k_star": False,
-    "k_rain": False,
-    "k_lantern": False,
-    "snow_style": "Все вместе",
-    "snow_color": "#FFFFFF",
-    "density": 120,
-    "speed": 1.0,
-    "size": 5,
-    "wobble": 1.0,
+    "season": "Авто", "fall_mode": "По сезону",
+    "k_snow": True, "k_leaf": False, "k_spring": False, "k_firefly": False,
+    "k_confetti": False, "k_bubble": False, "k_heart": False, "k_star": False,
+    "k_rain": False, "k_lantern": False,
+    "snow_style": "Все вместе", "snow_color": "#FFFFFF",
+    "density": 220, "speed": 1.1, "size": 5, "wobble": 1.1,
     "desktop_only": True,
-    # погода
-    "wind_dir": "Вправо",
-    "wind_power": 0.4,
-    "gust_power": 0.6,
-    "gust_speed": 1.0,
-    "blizzard_every": 0,
-    "blizzard_len": 25,
-    "blizzard_power": 1.5,
+    # погода и ветер
+    "wind_dir": "Вправо", "wind_power": 0.5, "gust_power": 0.6, "gust_speed": 1.0,
+    "blizzard_every": 0, "blizzard_len": 25, "blizzard_power": 1.6,
+    "weather_city": "Днепр",
     # курсор, снеговики, сугробы
-    "cursor_mode": "Физика ветра",
-    "cursor_radius": 90,
-    "cursor_force": 1.0,
-    "cursor_blow": True,
-    "roll_enabled": True,
-    "roll_key": "Ctrl",
-    "snowman_size": 1.0,
-    "snowman_max": 6,
-    "snowman_melt": 10,
-    "trail_enabled": False,
-    "trail_kind": "Искры",
-    "trail_amount": 1.0,
-    "trail_size": 1.0,
-    "trail_life": 1.0,
-    "pile_enabled": True,
-    "pile_max": 16,
-    "pile_rate": 1.0,
-    "plow_every": 0,
-    "plow_speed": 4,
-    # гирлянда
-    "garland_enabled": True,
-    "garland_winter_only": False,
-    "skip_maximized": True,
-    "garland_top": False,
-    "garland_style": "Авто (по сезону)",
-    "garland_glow": 2,
-    "garland_arc": 220,
-    "garland_sag": 28,
-    "garland_gap": 42,
-    "bulb_size": 5,
-    "garland_width": 2,
-    "garland_wire": "#2E7D32",
-    "color1": "#FF3B30",
-    "color2": "#FFD60A",
-    "color3": "#34C759",
-    "color4": "#0A84FF",
-    "blink_mode": "Бегущая волна",
-    "blink_speed": 2.0,
+    "cursor_mode": "Физика ветра", "cursor_radius": 95, "cursor_force": 1.1,
+    "cursor_blow": True, "roll_enabled": True, "roll_key": "Ctrl",
+    "snowman_size": 1.0, "snowman_max": 6, "snowman_melt": 10,
+    "trail_enabled": False, "trail_kind": "Искры", "trail_amount": 1.0,
+    "trail_size": 1.0, "trail_life": 1.0,
+    "pile_enabled": True, "pile_max": 18, "pile_rate": 1.1,
+    "plow_every": 0, "plow_speed": 4,
+    # гирлянда (только сверху экрана, без свечения за стеклом)
+    "garland_enabled": True, "garland_winter_only": False, "skip_maximized": True,
+    "garland_top": True,
+    "garland_style": "Авто (по сезону)", "garland_glow": 2,
+    "garland_arc": 220, "garland_sag": 28, "garland_gap": 42, "bulb_size": 5,
+    "garland_width": 2, "garland_wire": "#2E7D32",
+    "color1": "#FF3B30", "color2": "#FFD60A", "color3": "#34C759", "color4": "#0A84FF",
+    "blink_mode": "Бегущая волна", "blink_speed": 2.0,
     # небо
-    "aurora_enabled": False,
-    "aurora_when": "Всегда",
-    "aurora_palette": "Зелёное",
-    "aurora_height": 32,
-    "aurora_speed": 1.0,
-    "aurora_power": 2,
-    "stars_enabled": False,
-    "stars_count": 90,
-    "stars_height": 50,
-    "stars_twinkle": 1.0,
-    "sky_body": "Выкл",
-    "sky_phase": "Авто",
-    "sky_corner": "Правый верх",
-    "sky_size": 70,
-    "meteor_enabled": False,
-    "meteor_every": 8,
-    "meteor_len": 1.0,
-    "clouds_enabled": False,
-    "clouds_count": 5,
-    "clouds_speed": 1.0,
-    "clouds_tint": "Белые",
-    "clouds_height": 30,
-    "birds_mode": "Выкл",
-    "birds_count": 8,
-    "birds_size": 100,
-    "birds_speed": 1.0,
+    "aurora_enabled": False, "aurora_when": "Всегда", "aurora_palette": "Зелёное",
+    "aurora_height": 34, "aurora_speed": 1.0, "aurora_power": 2,
+    "stars_enabled": False, "stars_count": 130, "stars_height": 55, "stars_twinkle": 1.2,
+    "sky_body": "Выкл", "sky_phase": "Авто", "sky_corner": "Правый верх", "sky_size": 80,
+    "meteor_enabled": False, "meteor_every": 7, "meteor_len": 1.3,
+    "clouds_enabled": False, "clouds_count": 8, "clouds_speed": 1.0,
+    "clouds_tint": "Белые", "clouds_height": 34,
+    "birds_mode": "Выкл", "birds_count": 10, "birds_size": 100, "birds_speed": 1.1,
     # праздник
-    "widget_monitor": "Правый",
-    "santa_enabled": False,
-    "santa_every": 3,
-    "santa_size": 100,
-    "santa_speed": 5,
-    "santa_height": 18,
-    "santa_gifts": True,
-    "tree_enabled": False,
-    "tree_side": "Справа",
-    "tree_size": 100,
-    "tree_margin": 40,
-    "tree_lift": 0,
-    "fw_enabled": False,
-    "fw_every": 6,
-    "fw_size": 1.0,
-    "count_enabled": False,
-    "count_target": "Новый год",
-    "count_month": 12,
-    "count_day": 31,
-    "count_corner": "Левый верх",
-    "count_size": 100,
-    "count_color": "#FFFFFF",
-    "count_seconds": True,
-    "strip_enabled": False,
-    "strip_mode": "Радуга",
-    "strip_width": 4,
-    "strip_speed": 1.0,
-    "strip_color": "#8B5CF6",
-    "neon_enabled": False,
-    "neon_mode": "Радуга",
-    "neon_width": 3,
-    "neon_speed": 1.0,
+    "widget_monitor": "Основной",
+    "santa_enabled": False, "santa_every": 3, "santa_size": 105, "santa_speed": 7,
+    "santa_height": 18, "santa_gifts": True,
+    "tree_enabled": False, "tree_side": "Справа", "tree_size": 100,
+    "tree_margin": 40, "tree_lift": 0,
+    "fw_enabled": False, "fw_every": 6, "fw_size": 1.1,
+    "count_enabled": False, "count_target": "Новый год", "count_month": 12,
+    "count_day": 31, "count_corner": "Левый верх", "count_size": 100,
+    "count_color": "#FFFFFF", "count_seconds": True,
     # приложение
-    "ui_theme": "Тёмная (фиолет)",
-    "ui_accent": "По теме",
-    "ui_font": "Обычный",
-    "close_to_tray": True,
-    "start_hidden": False,
-    "pause_fullscreen": True,
-    "perf_mode": "Авто",
-    "fps": 30,
-    "lead_ms": 8,
+    "ui_theme": "Ночной океан", "ui_accent": "По теме", "ui_font": "Обычный",
+    "close_to_tray": True, "start_hidden": False, "pause_fullscreen": True,
+    "perf_mode": "Красота", "fps": 60,
 }
-APP_KEYS = {
-    "ui_theme",
-    "ui_accent",
-    "ui_font",
-    "close_to_tray",
-    "start_hidden",
-    "pause_fullscreen",
-    "perf_mode",
-    "fps",
-    "lead_ms",
-    "widget_monitor",
-}
+APP_KEYS = {"ui_theme", "ui_accent", "ui_font", "close_to_tray", "start_hidden",
+            "pause_fullscreen", "perf_mode", "fps", "widget_monitor", "weather_city"}
 
-EFFECT_NAMES = (
-    "stars",
-    "aurora",
-    "clouds",
-    "sky",
-    "birds",
-    "tree",
-    "count",
-    "strip",
-    "santa",
-    "neon",
-)
-EFFECT_PREFIX = (
-    ("aurora_", "aurora"),
-    ("stars_", "stars"),
-    ("sky_", "sky"),
-    ("clouds_", "clouds"),
-    ("tree_", "tree"),
-    ("santa_", "santa"),
-    ("birds_", "birds"),
-    ("count_", "count"),
-    ("strip_", "strip"),
-    ("neon_", "neon"),
-)
-SCENE_KEYS = {
-    "garland_enabled",
-    "garland_winter_only",
-    "skip_maximized",
-    "garland_style",
-    "garland_glow",
-    "garland_arc",
-    "garland_sag",
-    "garland_gap",
-    "bulb_size",
-    "garland_width",
-    "garland_wire",
-    "color1",
-    "color2",
-    "color3",
-    "color4",
-    "pile_enabled",
-    "garland_top",
-}
+EFFECT_NAMES = ("stars", "aurora", "clouds", "sky", "birds", "tree", "count", "santa")
+EFFECT_PREFIX = (("aurora_", "aurora"), ("stars_", "stars"), ("sky_", "sky"),
+                 ("clouds_", "clouds"), ("tree_", "tree"), ("santa_", "santa"),
+                 ("birds_", "birds"), ("count_", "count"))
+SCENE_KEYS = {"garland_enabled", "garland_winter_only", "skip_maximized",
+              "garland_style", "garland_glow", "garland_arc", "garland_sag",
+              "garland_gap", "bulb_size", "garland_width", "garland_wire",
+              "color1", "color2", "color3", "color4", "pile_enabled", "garland_top"}
 PARTICLE_KEYS = {"season", "density", "size", "snow_color", "fall_mode", "snow_style"}
-DESK_TAGS = (
-    "e_stars",
-    "e_aurora",
-    "e_clouds",
-    "e_sky",
-    "e_birds",
-    "e_tree",
-    "e_count",
-    "e_strip",
-    "e_santa",
-    "flake",
-    "fx",
-)
-WIN_TAGS = ("pile", "snowman", "gift", "garland", "e_neon", "plow", "ball", "carry")
+DESK_TAGS = ("e_stars", "e_aurora", "e_clouds", "e_sky", "e_birds", "e_tree", "e_count",
+             "e_santa", "flake", "fx")
+WIN_TAGS = ("pile", "snowman", "gift", "garland", "plow", "ball", "carry")
 
 PRESETS = [
-    (
-        "newyear",
-        "❄",
-        "Новый год",
-        "Зима, гирлянда-лампочки, ёлка, Дед Мороз, звёзды и отсчёт до Нового года.",
-        {
-            "season": "Зима",
-            "garland_style": "Лампочки",
-            "tree_enabled": True,
-            "santa_enabled": True,
-            "count_enabled": True,
-            "stars_enabled": True,
-            "aurora_enabled": True,
-            "wind_power": 0.5,
-        },
-    ),
-    (
-        "autumn",
-        "❦",
-        "Уютная осень",
-        "Падают листья, плывут облака, пролетают птицы, ветер то в одну, то в другую сторону.",
-        {
-            "season": "Осень",
-            "garland_style": "Листья",
-            "clouds_enabled": True,
-            "birds_mode": "Птицы",
-            "wind_power": 1.2,
-            "wind_dir": "Меняется",
-        },
-    ),
-    (
-        "spring",
-        "✿",
-        "Весна",
-        "Лепестки и зелёные листья, цветочная гирлянда, птицы и лёгкие облака.",
-        {
-            "season": "Весна",
-            "garland_style": "Цветы",
-            "clouds_enabled": True,
-            "birds_mode": "Птицы",
-            "wind_power": 0.6,
-        },
-    ),
-    (
-        "summer",
-        "☀",
-        "Лето",
-        "Светлячки, солнце, бабочки и разноцветные флажки вместо гирлянды.",
-        {
-            "season": "Лето",
-            "garland_style": "Флажки",
-            "sky_body": "Солнце",
-            "birds_mode": "Бабочки",
-            "clouds_enabled": True,
-            "pile_enabled": False,
-        },
-    ),
-    (
-        "party",
-        "✺",
-        "Вечеринка",
-        "Конфетти, сердечки, пузыри, радужный след за курсором, фейерверки и неон.",
-        {
-            "fall_mode": "Свой набор",
-            "k_snow": False,
-            "k_confetti": True,
-            "k_heart": True,
-            "k_bubble": True,
-            "trail_enabled": True,
-            "trail_kind": "Радуга",
-            "fw_enabled": True,
-            "strip_enabled": True,
-            "neon_enabled": True,
-            "garland_style": "Шарики",
-            "pile_enabled": False,
-        },
-    ),
-    (
-        "night",
-        "☾",
-        "Ночное небо",
-        "Луна, звёзды, северное сияние, метеоры и небесные фонарики.",
-        {
-            "fall_mode": "Свой набор",
-            "k_snow": False,
-            "k_lantern": True,
-            "k_star": True,
-            "stars_enabled": True,
-            "sky_body": "Луна",
-            "aurora_enabled": True,
-            "meteor_enabled": True,
-            "garland_enabled": False,
-            "pile_enabled": False,
-        },
-    ),
-    (
-        "rain",
-        "☂",
-        "Дождь",
-        "Пасмурные облака, дождь с брызгами и порывистый ветер.",
-        {
-            "fall_mode": "Свой набор",
-            "k_snow": False,
-            "k_rain": True,
-            "density": 220,
-            "clouds_enabled": True,
-            "clouds_tint": "Серые (пасмурно)",
-            "gust_power": 1.0,
-            "garland_enabled": False,
-            "pile_enabled": False,
-        },
-    ),
-    (
-        "quiet",
-        "☕",
-        "Тишина",
-        "Совсем немного снега, без гирлянды и сугробов — чтобы не отвлекало.",
-        {
-            "density": 40,
-            "speed": 0.7,
-            "garland_enabled": False,
-            "pile_enabled": False,
-            "gust_power": 0.3,
-        },
-    ),
-    (
-        "eco",
-        "⚡",
-        "Минимум нагрузки",
-        "Почти ничего не рисуется — для слабых компьютеров.",
-        {
-            "density": 30,
-            "garland_enabled": False,
-            "pile_enabled": False,
-            "perf_mode": "Экономия",
-            "fps": 20,
-            "gust_power": 0.0,
-        },
-    ),
+    ("newyear", "❄", "Новый год",
+     "Зима, гирлянда-лампочки сверху, ёлка, Дед Мороз, звёзды и отсчёт до праздника.",
+     {"season": "Зима", "garland_style": "Лампочки", "tree_enabled": True,
+      "santa_enabled": True, "count_enabled": True, "stars_enabled": True,
+      "aurora_enabled": True, "density": 240, "wind_power": 0.5}),
+    ("blizzard", "☃", "Снегопад Макс",
+     "Густой плотный снегопад, большие сугробы на окнах, порывистый ветер и звёзды.",
+     {"season": "Зима", "density": 420, "size": 6, "speed": 1.3,
+      "pile_enabled": True, "pile_max": 26, "pile_rate": 1.6,
+      "wind_power": 1.1, "gust_power": 1.2, "stars_enabled": True}),
+    ("starry", "✦", "Звёздная сказка",
+     "Яркое звёздное небо с падающими звёздами, луна, северное сияние и метеоры.",
+     {"fall_mode": "Свой набор", "k_snow": True, "k_star": True, "density": 140,
+      "stars_enabled": True, "stars_count": 200, "sky_body": "Луна",
+      "aurora_enabled": True, "meteor_enabled": True, "meteor_every": 5,
+      "garland_enabled": False}),
+    ("arctic", "◈", "Арктика",
+     "Холодное бирюзовое сияние, луна, сосульки сверху экрана и тихий снег.",
+     {"season": "Зима", "garland_style": "Сосульки", "aurora_enabled": True,
+      "aurora_palette": "Зелёное", "sky_body": "Луна", "stars_enabled": True,
+      "density": 180, "wind_power": 0.8}),
+    ("autumn", "❦", "Уютная осень",
+     "Падают листья, плывут облака, летят птицы, ветер меняет направление.",
+     {"season": "Осень", "garland_style": "Листья", "clouds_enabled": True,
+      "clouds_count": 9, "birds_mode": "Птицы", "wind_power": 1.2, "wind_dir": "Меняется"}),
+    ("spring", "✿", "Весна",
+     "Лепестки и зелёные листья, цветочная гирлянда, птицы и лёгкие облака.",
+     {"season": "Весна", "garland_style": "Цветы", "clouds_enabled": True,
+      "birds_mode": "Птицы", "wind_power": 0.6}),
+    ("summer", "☀", "Лето и солнце",
+     "Светлячки, яркое солнце, бабочки, белые облака и флажки сверху.",
+     {"season": "Лето", "garland_style": "Флажки", "sky_body": "Солнце",
+      "birds_mode": "Бабочки", "clouds_enabled": True, "pile_enabled": False}),
+    ("sunset", "◐", "Закат у моря",
+     "Розовые закатные облака, парящие фонарики, мягкий ветер и падающие звёзды.",
+     {"fall_mode": "Свой набор", "k_snow": False, "k_lantern": True, "k_star": True,
+      "clouds_enabled": True, "clouds_tint": "Закат (розовые)", "clouds_count": 10,
+      "stars_enabled": True, "meteor_enabled": True, "garland_enabled": False, "pile_enabled": False}),
+    ("party", "✺", "Вечеринка",
+     "Конфетти, сердечки, пузыри, след за курсором и праздничные фейерверки.",
+     {"fall_mode": "Свой набор", "k_snow": False, "k_confetti": True, "k_heart": True,
+      "k_bubble": True, "density": 220, "trail_enabled": True, "trail_kind": "Искры",
+      "fw_enabled": True, "garland_style": "Шарики", "pile_enabled": False}),
+    ("rain", "☂", "Пасмурный дождь",
+     "Плотные серые облака, сильный дождь с брызгами на окнах и порывистый ветер.",
+     {"fall_mode": "Свой набор", "k_snow": False, "k_rain": True, "density": 340,
+      "clouds_enabled": True, "clouds_tint": "Серые (пасмурно)", "clouds_count": 11,
+      "gust_power": 1.2, "garland_enabled": False, "pile_enabled": False}),
+    ("quiet", "☕", "Тишина",
+     "Немного спокойного снега без гирлянды и сугробов — чтобы не отвлекало.",
+     {"density": 60, "speed": 0.7, "garland_enabled": False, "pile_enabled": False,
+      "gust_power": 0.2}),
+    ("eco", "⚡", "Минимум нагрузки",
+     "Облегчённый режим для слабых ноутбуков и работы от батареи.",
+     {"density": 40, "garland_enabled": False, "pile_enabled": False,
+      "perf_mode": "Экономия", "fps": 25, "gust_power": 0.0}),
 ]
 
-KEY = "#010203"  # прозрачный цвет окна-оверлея
-BIN = 4          # ширина столбика сугроба, px
-FX_LIMIT = 420
+KEY = "#010203"
+BIN = 4
+FX_LIMIT = 450
+SURFACE_BUCKET = 128
 
 SEASONS = {"Зима": "winter", "Осень": "autumn", "Весна": "spring", "Лето": "summer"}
-SEASON_TITLE = {
-    "winter": "❄  Зима",
-    "autumn": "❦  Осень",
-    "spring": "✿  Весна",
-    "summer": "☀  Лето",
-}
+SEASON_TITLE = {"winter": "❄  Зима", "autumn": "❦  Осень",
+                "spring": "✿  Весна", "summer": "☀  Лето"}
 AUTUMN = ["#D84315", "#EF6C00", "#F9A825", "#8D6E63", "#BF360C", "#C0A62A"]
 SPRING_LEAF = ["#66BB6A", "#81C784", "#9CCC65", "#43A047"]
 PETAL_COL = ["#F8BBD0", "#F48FB1", "#FFFFFF", "#FFE0B2"]
@@ -944,150 +536,48 @@ SPARK_COL = ["#FFE066", "#FFB347", "#FFFFFF", "#FF8C42"]
 DUST_COL = ["#FFF3B0", "#C8B6FF", "#BDE0FE", "#FFC8DD"]
 FIRE_COL = ["#FFD166", "#FF9F1C", "#FF5A1F", "#E63946"]
 FW_COL = ["#FF5C8A", "#FFD166", "#06D6A0", "#4CC9F0", "#C77DFF", "#FF9F1C"]
-MAT_COLOR = {
-    "snow": "#F2F7FF",
-    "leaf": "#B4631C",
-    "spring": "#7CB342",
-    "confetti": "#FFC24B",
-    "heart": "#FF6F91",
-}
-AURORA_PAL = {
-    "Зелёное": ["#39FF8A", "#2EE6C2", "#7CFFB2"],
-    "Фиолетовое": ["#B07CFF", "#7C8CFF", "#E27CFF"],
-    "Розовое": ["#FF7CC8", "#FF9E7C", "#C77CFF"],
-}
+MAT_COLOR = {"snow": "#F2F7FF", "leaf": "#B4631C", "spring": "#7CB342",
+             "confetti": "#FFC24B", "heart": "#FF6F91"}
+AURORA_PAL = {"Зелёное": ["#FF7CC8", "#A65ACD", "#37E79A", "#2EE6C2",
+                          "#7CFFB2", "#39FF8A", "#A65ACD", "#FF7CC8"],
+              "Фиолетовое": ["#B07CFF", "#7C8CFF", "#E27CFF"],
+              "Розовое": ["#FF7CC8", "#FF9E7C", "#C77CFF"],
+              "Бирюзовое": ["#00F5D4", "#00BBF9", "#72EFDD", "#48BFE3"]}
 LEAF = [(0, -1), (0.55, -0.4), (0.5, 0.3), (0, 1), (-0.5, 0.3), (-0.55, -0.4)]
 PETAL = [(0, -1), (0.65, -0.25), (0.45, 0.6), (0, 1), (-0.45, 0.6), (-0.65, -0.25)]
 RECT = [(-1, -0.55), (1, -0.55), (1, 0.55), (-1, 0.55)]
-GARLAND_STYLES = {
-    "Лампочки": "bulb",
-    "Сосульки": "icicle",
-    "Шарики": "ball",
-    "Звёзды": "star",
-    "Фонарики": "lantern",
-    "Флажки": "flag",
-    "Листья": "leaf",
-    "Цветы": "flower",
-    "Микс": "mix",
-}
+GARLAND_STYLES = {"Лампочки": "bulb", "Сосульки": "icicle", "Шарики": "ball",
+                  "Звёзды": "star", "Фонарики": "lantern", "Флажки": "flag",
+                  "Листья": "leaf", "Цветы": "flower", "Микс": "mix"}
 AUTO_STYLE = {"winter": "bulb", "autumn": "leaf", "spring": "flower", "summer": "flag"}
 
-
-def is_valid_hex(val):
-    if not isinstance(val, str) or len(val) != 7 or not val.startswith("#"):
-        return False
-    return all(ch in "0123456789abcdefABCDEF" for ch in val[1:])
-
-
-def sanitize_cfg(raw):
-    cfg = dict(DEFAULTS)
-    if not isinstance(raw, dict):
-        return cfg
-    for k, default_v in DEFAULTS.items():
-        if k not in raw:
-            continue
-        v = raw[k]
-        if isinstance(default_v, bool):
-            if isinstance(v, bool):
-                cfg[k] = v
-        elif isinstance(default_v, int):
-            if isinstance(v, int) and not isinstance(v, bool):
-                cfg[k] = v
-        elif isinstance(default_v, float):
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                val = float(v)
-                if math.isfinite(val):
-                    cfg[k] = val
-        elif isinstance(default_v, str):
-            if isinstance(v, str):
-                if default_v.startswith("#") and len(default_v) == 7:
-                    if is_valid_hex(v):
-                        cfg[k] = v.upper()
-                else:
-                    cfg[k] = v
-
-    # Ограничение диапазонов
-    cfg["density"] = max(0, min(600, cfg["density"]))
-    cfg["speed"] = max(0.1, min(4.0, cfg["speed"]))
-    cfg["size"] = max(2, min(14, cfg["size"]))
-    cfg["wobble"] = max(0.0, min(4.0, cfg["wobble"]))
-    cfg["wind_power"] = max(0.0, min(5.0, cfg["wind_power"]))
-    cfg["gust_power"] = max(0.0, min(3.0, cfg["gust_power"]))
-    cfg["gust_speed"] = max(0.2, min(3.0, cfg["gust_speed"]))
-    cfg["blizzard_every"] = max(0, min(60, cfg["blizzard_every"]))
-    cfg["blizzard_len"] = max(5, min(120, cfg["blizzard_len"]))
-    cfg["blizzard_power"] = max(0.5, min(3.0, cfg["blizzard_power"]))
-    cfg["cursor_radius"] = max(30, min(200, cfg["cursor_radius"]))
-    cfg["cursor_force"] = max(0.1, min(3.0, cfg["cursor_force"]))
-    cfg["snowman_size"] = max(0.6, min(2.0, cfg["snowman_size"]))
-    cfg["snowman_max"] = max(1, min(15, cfg["snowman_max"]))
-    cfg["snowman_melt"] = max(0, min(60, cfg["snowman_melt"]))
-    cfg["trail_amount"] = max(0.2, min(3.0, cfg["trail_amount"]))
-    cfg["trail_size"] = max(0.4, min(3.0, cfg["trail_size"]))
-    cfg["trail_life"] = max(0.3, min(3.0, cfg["trail_life"]))
-    cfg["pile_max"] = max(4, min(40, cfg["pile_max"]))
-    cfg["pile_rate"] = max(0.2, min(6.0, cfg["pile_rate"]))
-    cfg["plow_every"] = max(0, min(60, cfg["plow_every"]))
-    cfg["plow_speed"] = max(1, min(10, cfg["plow_speed"]))
-    cfg["garland_glow"] = max(1, min(3, cfg["garland_glow"]))
-    cfg["garland_arc"] = max(80, min(600, cfg["garland_arc"]))
-    cfg["garland_sag"] = max(0, min(100, cfg["garland_sag"]))
-    cfg["garland_gap"] = max(16, min(120, cfg["garland_gap"]))
-    cfg["bulb_size"] = max(2, min(14, cfg["bulb_size"]))
-    cfg["garland_width"] = max(1, min(6, cfg["garland_width"]))
-    cfg["blink_speed"] = max(0.2, min(10.0, cfg["blink_speed"]))
-    cfg["aurora_height"] = max(10, min(60, cfg["aurora_height"]))
-    cfg["aurora_speed"] = max(0.2, min(3.0, cfg["aurora_speed"]))
-    cfg["aurora_power"] = max(1, min(3, cfg["aurora_power"]))
-    cfg["stars_count"] = max(20, min(300, cfg["stars_count"]))
-    cfg["stars_height"] = max(10, min(100, cfg["stars_height"]))
-    cfg["stars_twinkle"] = max(0.2, min(4.0, cfg["stars_twinkle"]))
-    cfg["sky_size"] = max(30, min(160, cfg["sky_size"]))
-    cfg["meteor_every"] = max(2, min(60, cfg["meteor_every"]))
-    cfg["meteor_len"] = max(0.4, min(3.0, cfg["meteor_len"]))
-    cfg["clouds_count"] = max(1, min(12, cfg["clouds_count"]))
-    cfg["clouds_speed"] = max(0.2, min(4.0, cfg["clouds_speed"]))
-    cfg["clouds_height"] = max(10, min(70, cfg["clouds_height"]))
-    cfg["birds_count"] = max(1, min(30, cfg["birds_count"]))
-    cfg["birds_size"] = max(50, min(200, cfg["birds_size"]))
-    cfg["birds_speed"] = max(0.3, min(3.0, cfg["birds_speed"]))
-    cfg["santa_every"] = max(1, min(30, cfg["santa_every"]))
-    cfg["santa_size"] = max(40, min(200, cfg["santa_size"]))
-    cfg["santa_speed"] = max(1, min(12, cfg["santa_speed"]))
-    cfg["santa_height"] = max(5, min(70, cfg["santa_height"]))
-    cfg["tree_size"] = max(40, min(200, cfg["tree_size"]))
-    cfg["tree_margin"] = max(0, min(400, cfg["tree_margin"]))
-    cfg["tree_lift"] = max(0, min(400, cfg["tree_lift"]))
-    cfg["fw_every"] = max(2, min(60, cfg["fw_every"]))
-    cfg["fw_size"] = max(0.5, min(2.0, cfg["fw_size"]))
-    cfg["count_month"] = max(1, min(12, cfg["count_month"]))
-    cfg["count_day"] = max(1, min(31, cfg["count_day"]))
-    cfg["count_size"] = max(50, min(250, cfg["count_size"]))
-    cfg["strip_width"] = max(2, min(12, cfg["strip_width"]))
-    cfg["strip_speed"] = max(0.2, min(4.0, cfg["strip_speed"]))
-    cfg["neon_width"] = max(1, min(8, cfg["neon_width"]))
-    cfg["neon_speed"] = max(0.2, min(4.0, cfg["neon_speed"]))
-    cfg["fps"] = max(10, min(60, cfg["fps"]))
-    cfg["lead_ms"] = max(0, min(30, cfg["lead_ms"]))
-    return cfg
+APP_TITLE = "AuraDesk"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_NAME = "AuraDesk"
 
 
 def load_cfg():
+    cfg = dict(DEFAULTS)
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return sanitize_cfg(data)
+        if isinstance(data, dict):
+            for k in DEFAULTS:
+                if k in data and type(data[k]) == type(DEFAULTS[k]):
+                    cfg[k] = data[k]
+                elif k in data and isinstance(DEFAULTS[k], float) and \
+                        isinstance(data[k], int) and not isinstance(data[k], bool):
+                    cfg[k] = float(data[k])
     except Exception:
-        return dict(DEFAULTS)
+        pass
+    return cfg
 
 
 def save_cfg(cfg):
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(sanitize_cfg(cfg), f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, CONFIG_PATH)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(dict(cfg), f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -1100,6 +590,26 @@ def log_error(name=""):
             f.write(traceback.format_exc() + "\n")
     except Exception:
         pass
+
+
+def log_exception(name, exc_info):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + name + "\n")
+            f.writelines(traceback.format_exception(*exc_info))
+            f.write("\n")
+    except Exception:
+        pass
+
+
+def report_tk_exception(exc, value, tb):
+    log_exception("Tk callback", (exc, value, tb))
+
+
+def resource_path(name):
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
 
 
 def current_season(cfg):
@@ -1117,24 +627,18 @@ def current_season(cfg):
 
 
 def blend(hex_color, f):
-    if not is_valid_hex(hex_color):
-        hex_color = "#FFFFFF"
-    f = max(0.0, min(1.0, float(f)))
+    f = max(0.0, min(1.0, f))
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return "#%02x%02x%02x" % (int(r * f), int(g * f), int(b * f))
 
 
 def mix(c1, c2, t):
-    if not is_valid_hex(c1):
-        c1 = "#FFFFFF"
-    if not is_valid_hex(c2):
-        c2 = "#FFFFFF"
-    t = max(0.0, min(1.0, float(t)))
+    t = max(0.0, min(1.0, t))
     a, b = c1.lstrip("#"), c2.lstrip("#")
     out = []
     for i in (0, 2, 4):
-        x, y = int(a[i : i + 2], 16), int(b[i : i + 2], 16)
+        x, y = int(a[i:i + 2], 16), int(b[i:i + 2], 16)
         out.append(int(x + (y - x) * t))
     return "#%02x%02x%02x" % tuple(out)
 
@@ -1149,15 +653,11 @@ def shape_pts(shape, x, y, size, rot, wf):
     out = []
     for px, py in shape:
         px *= wf
-        out += [
-            x + (px * cs - py * sn) * size,
-            y + (px * sn + py * cs) * size,
-        ]
+        out += [x + (px * cs - py * sn) * size, y + (px * sn + py * cs) * size]
     return out
 
 
 def relax(h, cap):
-    """Сглаживание сугроба: чтобы он был похож на кучку, а не на столбики."""
     n = len(h)
     for i in range(n):
         if h[i] > cap:
@@ -1170,11 +670,115 @@ def relax(h, cap):
             h[i + 1] += ex * 0.25
 
 
+# ---------------------------------------------------------------- Погода (Open-Meteo API)
+WMO_INFO = {
+    0: ("Ясно", "sun", "#FFB300"),
+    1: ("Преим. ясно", "sun_cloud", "#FFD54F"),
+    2: ("Переменная облачность", "sun_cloud", "#90CAF9"),
+    3: ("Пасмурно", "cloud", "#90A4AE"),
+    45: ("Туман", "cloud", "#B0BEC5"),
+    48: ("Изморозь", "cloud", "#CFD8DC"),
+    51: ("Лёгкая морось", "rain", "#64B5F6"),
+    53: ("Морось", "rain", "#42A5F5"),
+    55: ("Сильная морось", "rain", "#2196F3"),
+    56: ("Ледяная морось", "snow_rain", "#80DEEA"),
+    57: ("Сильная ледяная морось", "snow_rain", "#4DD0E1"),
+    61: ("Небольшой дождь", "rain", "#42A5F5"),
+    63: ("Дождь", "rain", "#1E88E5"),
+    65: ("Сильный ливень", "rain", "#1565C0"),
+    66: ("Ледяной дождь", "snow_rain", "#4DD0E1"),
+    67: ("Сильный ледяной дождь", "snow_rain", "#00ACC1"),
+    71: ("Небольшой снег", "snow", "#E1F5FE"),
+    73: ("Снегопад", "snow", "#B3E5FC"),
+    75: ("Сильный снегопад", "snow", "#81D4FA"),
+    77: ("Снежные зёрна", "snow", "#E0F7FA"),
+    80: ("Ливневый дождь", "rain", "#29B6F6"),
+    81: ("Сильный ливень", "rain", "#0288D1"),
+    82: ("Шквальный ливень", "storm", "#5C6BC0"),
+    85: ("Снежный заряд", "snow", "#B3E5FC"),
+    86: ("Сильная метель", "snow", "#81D4FA"),
+    95: ("Гроза", "storm", "#7E57C2"),
+    96: ("Гроза с градом", "storm", "#5E35B1"),
+    99: ("Сильная гроза с градом", "storm", "#4527A0"),
+}
+
+WEEKDAYS_RU = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+
+
+def wmo_decode(code):
+    return WMO_INFO.get(int(code), ("Облачно", "cloud", "#90A4AE"))
+
+
+def fetch_city_forecast(city_name):
+    """Загружает координаты города и прогноз на 7 дней (без внешних библиотек)."""
+    q = urllib.parse.quote(city_name.strip())
+    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={q}&count=1&language=ru&format=json"
+    req = urllib.request.Request(geo_url, headers={"User-Agent": "AuraDesk/1.0"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        geo = json.loads(resp.read().decode("utf-8"))
+    results = geo.get("results")
+    if not results:
+        raise ValueError(f"Город «{city_name}» не найден")
+    place = results[0]
+    lat, lon = place["latitude"], place["longitude"]
+    resolved_name = place.get("name", city_name)
+    country = place.get("country", "")
+    admin = place.get("admin1", "")
+
+    fc_url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+        "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m"
+        "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
+        "&timezone=auto&forecast_days=7"
+    )
+    req2 = urllib.request.Request(fc_url, headers={"User-Agent": "AuraDesk/1.0"})
+    with urllib.request.urlopen(req2, timeout=8) as resp2:
+        fc = json.loads(resp2.read().decode("utf-8"))
+
+    cur = fc.get("current", {})
+    daily = fc.get("daily", {})
+    days = []
+    dates = daily.get("time", [])
+    codes = daily.get("weather_code", [])
+    tmax = daily.get("temperature_2m_max", [])
+    tmin = daily.get("temperature_2m_min", [])
+    pop = daily.get("precipitation_probability_max", [])
+    wmax = daily.get("wind_speed_10m_max", [])
+
+    for i in range(len(dates)):
+        dt = datetime.date.fromisoformat(dates[i])
+        wd = "Сегодня" if i == 0 else ("Завтра" if i == 1 else WEEKDAYS_RU[dt.weekday()])
+        label, kind, color = wmo_decode(codes[i] if i < len(codes) else 3)
+        days.append({
+            "date": dt.strftime("%d.%m"),
+            "weekday": wd,
+            "code": codes[i] if i < len(codes) else 3,
+            "label": label,
+            "kind": kind,
+            "color": color,
+            "tmax": round(tmax[i]) if i < len(tmax) else 0,
+            "tmin": round(tmin[i]) if i < len(tmin) else 0,
+            "pop": int(pop[i] or 0) if i < len(pop) else 0,
+            "wind": round(wmax[i]) if i < len(wmax) else 0,
+        })
+
+    c_label, c_kind, c_color = wmo_decode(cur.get("weather_code", 3))
+    return {
+        "city": resolved_name,
+        "region": ", ".join(x for x in (admin, country) if x and x != resolved_name),
+        "temp": round(cur.get("temperature_2m", 0)),
+        "feels": round(cur.get("apparent_temperature", 0)),
+        "humidity": int(cur.get("relative_humidity_2m", 0)),
+        "wind": round(cur.get("wind_speed_10m", 0)),
+        "code": cur.get("weather_code", 3),
+        "label": c_label,
+        "kind": c_kind,
+        "color": c_color,
+        "days": days,
+    }
+
+
 # ---------------------------------------------------------------- Автозапуск
-RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-APP_NAME = "SnowGarland"
-
-
 def autostart_command():
     if getattr(sys, "frozen", False):
         return '"%s" --autostart' % sys.executable
@@ -1199,9 +803,8 @@ def set_autostart(on):
     if not winreg:
         return False
     try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE
-        ) as k:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0,
+                            winreg.KEY_SET_VALUE) as k:
             if on:
                 winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, autostart_command())
             else:
@@ -1216,9 +819,7 @@ def set_autostart(on):
 
 # ---------------------------------------------------------------- Движок мира
 class Engine:
-    """Вся «физика» и рисование. Не зависит от окон Tk (поэтому тестируется)."""
-
-    strict = False  # в тестах: пробрасывать ошибки
+    strict = False
 
     def __init__(self, canvas, cfg, geom):
         self.cv = canvas
@@ -1235,12 +836,16 @@ class Engine:
         self.now = time.time()
         self.parts, self.chunks, self.fx = [], [], []
         self.piles, self.snowmen, self.gifts = {}, [], []
+        self.pile_items, self.dirty_pile_keys = {}, set()
+        self.pile_full_dirty = False
         self.plow, self.last_plow = None, None
         self.hold, self.cur = None, None
-        self.lights, self.render, self.geo, self.vel = {}, {}, {}, {}
+        self.lights, self.render, self.geo = {}, {}, {}
         self.geo_t = 0.0
         self.surfaces, self.surf_info = [], {}
+        self.surface_index = {}
         self.win_rects, self.win_keys, self.wins = [], set(), []
+        self.window_cache, self.last_window_scan = [], 0.0
         self.mons, self.mons_sig, self.last_work = [], None, -99.0
         self.work, self.tb_rects = [], []
         self.mask_items, self.mask_rects = [], []
@@ -1257,27 +862,12 @@ class Engine:
         self.bliz, self.bliz_f, self.bliz_dir, self.next_bliz = None, 0.0, 1, None
         self.next_meteor, self.next_fw = 0.0, 0.0
         self.meteors, self.rockets = [], []
-        self.santa, self.next_santa = None, None
-        self.perf_scale = 0.5 if cfg["perf_mode"] == "Экономия" else 1.0
+        self.santa, self.next_santa, self.santa_last_t = None, None, 0.0
+        self.perf_scale = 0.65 if cfg["perf_mode"] == "Экономия" else (0.95 if cfg["perf_mode"] == "Авто" else 1.0)
         self.perf_cool = 0.0
         self.ms = 0.0
+        self.last_frame_perf, self.frame_scale = 0.0, 1.0
         self.errors, self.disabled = {}, set()
-
-        self.aur_n = 0
-        self.aur = []
-        self.aur_col = []
-        self.stars = []
-        self.sky = {"body": "Луна", "cx": 0, "cy": 0, "S": 70, "rays": []}
-        self.neon = []
-        self.neon_vis = False
-        self.neon_rect = None
-        self.neon_col = None
-        self.tree_lights = []
-        self.clouds = []
-        self.bkind = "bird"
-        self.birds = []
-        self.cnt_ids = []
-        self.strip = []
 
     def guard(self, name, fn, *a):
         if name in self.disabled:
@@ -1302,7 +892,7 @@ class Engine:
                 self.reset_world()
             return
         if key == "widget_monitor":
-            self.fx_dirty.update(("tree", "sky", "count", "strip"))
+            self.fx_dirty.update(("tree", "sky", "count"))
             return
         if key == "desktop_only":
             self.layers_dirty = True
@@ -1316,11 +906,11 @@ class Engine:
             self.dirty_scene = True
             if key == "pile_enabled" and not cfg["pile_enabled"]:
                 self.piles = {}
-                self.pile_dirty = True
+                self.mark_pile_dirty(full=True)
         elif key == "snowman_size":
             self.dirty_snowmen = True
         elif key == "perf_mode":
-            self.perf_scale = 0.5 if cfg["perf_mode"] == "Экономия" else 1.0
+            self.perf_scale = 0.65 if cfg["perf_mode"] == "Экономия" else (0.95 if cfg["perf_mode"] == "Авто" else 1.0)
             self.dirty_particles = True
 
     def reset_world(self):
@@ -1330,13 +920,21 @@ class Engine:
         self.cv.delete("ball")
         self.cv.delete("carry")
         self.dirty_particles = self.dirty_scene = self.dirty_snowmen = True
-        self.pile_dirty = True
+        self.mark_pile_dirty(full=True)
         self.ver += 1
         self.fx_dirty.update(EFFECT_NAMES)
 
     def clear_snow(self):
         self.piles = {}
+        self.mark_pile_dirty(full=True)
+
+    def mark_pile_dirty(self, key=None, full=False):
         self.pile_dirty = True
+        if full or key is None:
+            self.pile_full_dirty = True
+            self.dirty_pile_keys.clear()
+        elif not self.pile_full_dirty:
+            self.dirty_pile_keys.add(key)
 
     def clear_snowmen(self):
         self.snowmen, self.gifts = [], []
@@ -1350,25 +948,26 @@ class Engine:
         for tag in order:
             self.cv.tag_raise(tag)
 
-    def step(self, now):
-        self.scene_tick(now)
-        self.tick(now)
-
     def scene_tick(self, now):
-        """Быстрый такт (до 140 раз/с, пока окна двигают): гирлянда следует за окнами."""
         if not self.visible or now < self.next_poll:
             return
         self.now = now
         self.guard("scene", self.refresh_scene, now)
-        self.next_poll = now + (0.007 if now < self.fast_until else 0.05)
-        if self.effect_on.get("neon"):
-            self.guard("neon", self.update_neon, now)
+        self.next_poll = now + (0.032 if now < self.fast_until else 0.12)
+
+    def window_location_changed(self, _hwnd):
+        now = time.time()
+        self.fast_until = max(self.fast_until, now + 0.4)
+        self.next_poll = 0.0
+        return True
 
     def tick(self, now):
-        """Основной такт (fps из настроек): физика и эффекты."""
         if not self.visible:
             return
         t0 = time.perf_counter()
+        dt = t0 - self.last_frame_perf if self.last_frame_perf else 1.0 / 60.0
+        self.last_frame_perf = t0
+        self.frame_scale = max(0.25, min(2.5, dt * 30.0))
         cfg = self.cfg
         self.frame += 1
         self.now = now
@@ -1419,14 +1018,12 @@ class Engine:
         cfg = self.cfg
         vx, vy = self.vx, self.vy
         wins = self.get_windows()
+        self.window_cache = list(wins)
+        self.last_window_scan = now
         if now - self.last_work > 2.0 or not self.mons:
             self.last_work = now
-            mons = self.get_mons() or [
-                {
-                    "mon": (vx, vy, vx + self.W, vy + self.H),
-                    "work": (vx, vy, vx + self.W, vy + self.H),
-                }
-            ]
+            mons = self.get_mons() or [{"mon": (vx, vy, vx + self.W, vy + self.H),
+                                        "work": (vx, vy, vx + self.W, vy + self.H)}]
             sig = tuple((m["mon"], m["work"]) for m in mons)
             if sig != self.mons_sig:
                 self.mons_sig = sig
@@ -1444,25 +1041,16 @@ class Engine:
                         self.tb_rects.append((ml - vx, mt - vy, wl - vx, mb - vy))
                     if wr < mr:
                         self.tb_rects.append((wr - vx, mt - vy, mr - vx, mb - vy))
-                self.fx_dirty.update(("tree", "sky", "count", "strip"))
+                self.fx_dirty.update(("tree", "sky", "count"))
                 self.dirty_scene = True
-        lead = cfg["lead_ms"] / 1000.0
-        wp = []
-        moved = False
-        for (hw, l, t, r, b, mx) in wins:
-            ox, oy = self.lead_offset(hw, l, t, now, lead)
-            if ox or oy:
-                moved = True
-            wp.append((hw, l + ox, t + oy, r + ox, b + oy, mx))
+
         new_geo = {w[0]: (w[1] - vx, w[2] - vy, w[3] - w[1]) for w in wins}
-        for key in list(self.vel):
-            if key not in new_geo:
-                del self.vel[key]
         for key in list(self.geo):
             if key not in new_geo:
                 self.collapse(key)
         dt = max(0.004, now - self.geo_t) if self.geo_t else 0.033
         self.geo_t = now
+        moved = False
         for key, g in new_geo.items():
             prev = self.geo.get(key)
             if prev:
@@ -1473,44 +1061,34 @@ class Engine:
                         self.shed(key, g, dx / dt * 0.033, dy / dt * 0.033, dt / 0.033)
         self.geo = new_geo
         if moved:
-            self.fast_until = now + 0.5
+            self.fast_until = now + 0.4
+
         info, deco = {}, {}
-        for (hw, a, c, top, left, width) in visible_top_edges(wp, cfg["skip_maximized"]):
+        for (hw, a, c, top, left, width) in visible_top_edges(wins, cfg["skip_maximized"]):
             ty = top - vy
             if ty < 4 or ty > self.H - 4:
                 continue
-            d = info.setdefault(
-                hw, {"left": left - vx, "width": width, "top": ty, "spans": []}
-            )
+            d = info.setdefault(hw, {"left": left - vx, "width": width, "top": ty, "spans": []})
             d["spans"].append((a - vx, c - vx))
         for i, m in enumerate(self.mons):
             wl, wt, wr, wb = m["work"]
-            info["g%d" % i] = {
-                "left": wl - vx,
-                "width": wr - wl,
-                "top": wb - vy,
-                "spans": [(wl - vx, wr - vx)],
-            }
+            info["g%d" % i] = {"left": wl - vx, "width": wr - wl, "top": wb - vy,
+                               "spans": [(wl - vx, wr - vx)]}
             if cfg["garland_top"]:
                 ml, mt, mr, mb = m["mon"]
-                deco["t%d" % i] = {
-                    "left": ml - vx,
-                    "width": mr - ml,
-                    "top": mt - vy,
-                    "spans": [(ml - vx, mr - vx)],
-                }
-        self.win_rects = [(l - vx, t - vy, r - vx, b - vy) for (_h, l, t, r, b, _m) in wp]
+                deco["t%d" % i] = {"left": ml - vx, "width": mr - ml, "top": mt - vy,
+                                   "spans": [(ml - vx, mr - vx)]}
+        self.win_rects = [(l - vx, t - vy, r - vx, b - vy) for (_h, l, t, r, b, _m) in wins]
         self.win_keys = {w[0] for w in wins}
-        self.wins = wp
+        self.wins = wins
+
         hidden = False
         if cfg["desktop_only"] and self.work and self.win_rects:
             hidden = True
             for (wl, wt, wr, wb) in self.work:
                 L, T, R, B = wl - vx, wt - vy, wr - vx, wb - vy
-                if not any(
-                    a <= L + 6 and b0 <= T + 6 and c >= R - 6 and d >= B - 6
-                    for (a, b0, c, d) in self.win_rects
-                ):
+                if not any(a <= L + 6 and b0 <= T + 6 and c >= R - 6 and d >= B - 6
+                           for (a, b0, c, d) in self.win_rects):
                     hidden = False
                     break
         self.desk_hidden = hidden
@@ -1519,45 +1097,46 @@ class Engine:
             self.ver += 1
             self.dirty_scene = False
         self.surf_info = info
-        self.surfaces = [
-            (k, a, c, d["top"], d["left"], d["width"])
-            for k, d in info.items()
-            for (a, c) in d["spans"]
-        ]
+        surfaces = [(k, a, c, d["top"], d["left"], d["width"])
+                    for k, d in info.items() for (a, c) in d["spans"]]
+        if surfaces != self.surfaces:
+            self.surfaces = surfaces
+            surface_index = {}
+            for surface in surfaces:
+                first = int(surface[1] // SURFACE_BUCKET)
+                last = int(surface[2] // SURFACE_BUCKET)
+                for bucket in range(first, last + 1):
+                    surface_index.setdefault(bucket, []).append(surface)
+            self.surface_index = surface_index
         gkeys = {"g%d" % i for i in range(len(self.mons))}
         for k in list(self.piles):
-            if (isinstance(k, str) and k not in gkeys) or (
-                isinstance(k, int) and k not in self.win_keys
-            ):
+            if (isinstance(k, str) and k not in gkeys) or \
+                    (isinstance(k, int) and k not in self.win_keys):
                 del self.piles[k]
+                self.mark_pile_dirty(k)
         n0 = len(self.snowmen) + len(self.gifts)
 
         def alive(s):
-            return (isinstance(s["key"], str) and s["key"] in gkeys) or (
-                isinstance(s["key"], int) and s["key"] in self.win_keys
-            )
+            return (isinstance(s["key"], str) and s["key"] in gkeys) or \
+                   (isinstance(s["key"], int) and s["key"] in self.win_keys)
 
         self.snowmen = [s for s in self.snowmen if alive(s)]
         self.gifts = [s for s in self.gifts if alive(s)]
         if len(self.snowmen) + len(self.gifts) != n0:
             self.dirty_snowmen = True
-        alli = dict(info)
-        alli.update(deco)
-        self.update_render(alli)
+        self.update_render(deco)
         if self.dirty_snowmen:
             self.redraw_snowmen()
             self.raise_all()
 
-    def update_render(self, info):
-        """Если форма не менялась — просто сдвигаем готовые элементы (быстро)."""
+    def update_render(self, deco):
+        """Гирлянда рисуется только по верхнему краю мониторов (t0, t1...)."""
         cv = self.cv
         rebuilt = False
-        for key, d in info.items():
-            sig = (
-                d["width"],
-                tuple((round(a - d["left"]), round(c - d["left"])) for a, c in d["spans"]),
-                self.ver,
-            )
+        for key, d in deco.items():
+            sig = (d["width"],
+                   tuple((round(a - d["left"]), round(c - d["left"]))
+                         for a, c in d["spans"]), self.ver)
             r = self.render.get(key)
             if r and r["sig"] == sig:
                 dx, dy = d["left"] - r["left"], d["top"] - r["top"]
@@ -1566,57 +1145,44 @@ class Engine:
                     r["left"], r["top"] = d["left"], d["top"]
             else:
                 cv.delete("w%s" % key)
-                self.build_garland_key(key, d)
+                self.build_garland_top(key, d)
                 self.render[key] = {"sig": sig, "left": d["left"], "top": d["top"]}
                 rebuilt = True
         for key in list(self.render):
-            if key not in info:
+            if key not in deco:
                 cv.delete("w%s" % key)
                 del self.render[key]
                 self.lights.pop(key, None)
         if rebuilt:
-            self.redraw_piles()
-            self.redraw_snowmen()
             self.raise_all()
 
+    # ---- осыпание сугробов
     def collapse(self, key):
         g = self.geo.pop(key, None)
         p = self.piles.pop(key, None)
         if g and p:
-            left, top, _width = g
+            left, top, width = g
             h = p["h"]
             stride = max(1, len(h) // 120)
             for i in range(0, len(h), stride):
                 if h[i] > 0.6:
                     mat = p["m"][i] or "snow"
                     for _ in range(max(1, int(h[i] / 5))):
-                        self.spawn_chunk(
-                            left + i * BIN + random.uniform(-3, 3),
-                            top - h[i] * random.random(),
-                            random.uniform(-1.5, 1.5),
-                            random.uniform(-1, 1),
-                            mat,
-                            random.uniform(1.4, 3.2),
-                        )
-            self.pile_dirty = True
+                        self.spawn_chunk(left + i * BIN + random.uniform(-3, 3),
+                                         top - h[i] * random.random(),
+                                         random.uniform(-1.5, 1.5), random.uniform(-1, 1),
+                                         mat, random.uniform(1.4, 3.2))
+            self.mark_pile_dirty(key)
         if g:
             for sm in self.snowmen:
                 if sm["key"] == key:
                     for _ in range(10):
-                        self.spawn_chunk(
-                            g[0] + sm["off"] + random.uniform(-8, 8),
-                            g[1] - random.uniform(0, 30),
-                            random.uniform(-2, 2),
-                            random.uniform(-2, 0),
-                            "snow",
-                            3.0,
-                        )
+                        self.spawn_chunk(g[0] + sm["off"] + random.uniform(-8, 8),
+                                         g[1] - random.uniform(0, 30), random.uniform(-2, 2),
+                                         random.uniform(-2, 0), "snow", 3.0)
             for gf in self.gifts:
                 if gf["key"] == key:
                     self.spawn_gift(g[0] + gf["off"], g[1] - 6, gf["col"])
-        self.cv.delete("w%s" % key)
-        self.render.pop(key, None)
-        self.lights.pop(key, None)
 
     def shed(self, key, g, dx, dy, k=1.0):
         p = self.piles.get(key)
@@ -1629,41 +1195,20 @@ class Engine:
         for i in range(len(h)):
             if h[i] > 0.8 and random.random() < frac * 0.6:
                 if n < 30:
-                    self.spawn_chunk(
-                        left + i * BIN,
-                        top - h[i],
-                        -dx * 0.25 + random.uniform(-1.5, 1.5),
-                        -abs(dy) * 0.15 - random.uniform(0.5, 2.5),
-                        m[i] or "snow",
-                        random.uniform(1.4, 3.0),
-                    )
+                    self.spawn_chunk(left + i * BIN, top - h[i], -dx * 0.25 + random.uniform(-1.5, 1.5),
+                                     -abs(dy) * 0.15 - random.uniform(0.5, 2.5),
+                                     m[i] or "snow", random.uniform(1.4, 3.0))
                     n += 1
                 h[i] *= 1 - frac
-        self.pile_dirty = True
+        self.mark_pile_dirty(key)
 
     def spawn_chunk(self, x, y, vx, vy, mat, r):
         if len(self.chunks) >= 400:
             return
-        i = self.cv.create_oval(
-            x - r,
-            y - r,
-            x + r,
-            y + r,
-            fill=MAT_COLOR.get(mat, "#FFFFFF"),
-            outline="",
-            tags="flake",
-        )
+        i = self.cv.create_oval(x - r, y - r, x + r, y + r, fill=MAT_COLOR.get(mat, "#FFFFFF"),
+                                outline="", tags="flake")
         self.below_mask(i)
-        self.chunks.append({
-            "x": x,
-            "y": y,
-            "py": y,
-            "vx": vx,
-            "vy": vy,
-            "r": r,
-            "mat": mat,
-            "id": i,
-        })
+        self.chunks.append({"x": x, "y": y, "py": y, "vx": vx, "vy": vy, "r": r, "mat": mat, "id": i})
 
     def update_chunks(self):
         if not self.chunks:
@@ -1679,11 +1224,10 @@ class Engine:
             c["y"] += c["vy"]
             x, y, py, r = c["x"], c["y"], c["py"], c["r"]
             landed = None
-            for (key, a, e, top, left, width) in self.surfaces:
+            for (key, a, e, top, left, width) in self.surface_index.get(
+                    int(x // SURFACE_BUCKET), ()):
                 if a <= x <= e:
-                    ys = top - (
-                        self.pile_h(key, left, x) if (pen and "gift" not in c) else 0.0
-                    )
+                    ys = top - (self.pile_h(key, left, x) if (pen and "gift" not in c) else 0.0)
                     if py < ys <= y:
                         landed = (key, left, width)
                         break
@@ -1691,14 +1235,7 @@ class Engine:
                 if "gift" in c:
                     self.add_gift(landed[0], landed[1], x, c["gift"])
                 elif pen:
-                    self.land(
-                        landed[0],
-                        landed[1],
-                        landed[2],
-                        x,
-                        c["mat"],
-                        0.3 * r * cfg["pile_rate"],
-                    )
+                    self.land(landed[0], landed[1], landed[2], x, c["mat"], 0.3 * r * cfg["pile_rate"])
             if landed or y > self.H + 20 or x < -60 or x > self.W + 60:
                 cv.delete(c["id"])
                 continue
@@ -1706,6 +1243,7 @@ class Engine:
             keep.append(c)
         self.chunks = keep
 
+    # ---- ветер
     def wind_now(self, now):
         cfg = self.cfg
         d = cfg["wind_dir"]
@@ -1714,19 +1252,17 @@ class Engine:
         gp = cfg["gust_power"]
         if gp > 0:
             t = now * cfg["gust_speed"]
-            g = (
-                math.sin(t * 0.37) * 0.6
-                + math.sin(t * 0.91 + 1.3) * 0.3
-                + math.sin(t * 2.3 + 0.4) * 0.1
-            )
+            g = math.sin(t * 0.37) * 0.6 + math.sin(t * 0.91 + 1.3) * 0.3 + math.sin(t * 2.3 + 0.4) * 0.1
             w += g * gp * 1.5
         return w + self.bliz_f * cfg["blizzard_power"] * 3.0 * self.bliz_dir
 
+    # ---- метель
     def start_blizzard(self, now=None):
         now = time.time() if now is None else now
         self.bliz = {"t0": now, "len": max(5.0, float(self.cfg["blizzard_len"]))}
         self.bliz_dir = random.choice((-1, 1))
-        for _ in range(int(150 * self.cfg["blizzard_power"])):
+        storm_n = int(min(180, 140 * self.cfg["blizzard_power"]) * self.perf_scale)
+        for _ in range(storm_n):
             self.parts.append(self.make_particle("snow", True, True))
         self.raise_all()
 
@@ -1751,6 +1287,7 @@ class Engine:
         ramp = L * 0.2
         self.bliz_f = max(0.0, min(1.0, t / ramp, (L - t) / ramp))
 
+    # ---- частицы (больше снега и высокая скорость отрисовки)
     def active_kinds(self):
         cfg = self.cfg
         if cfg["fall_mode"] == "По сезону":
@@ -1762,113 +1299,57 @@ class Engine:
         self.cv.delete("flake")
         self.chunks = []
         ks = self.active_kinds()
-        n = int(self.cfg["density"] * self.perf_scale)
+        cap = {"Авто": 380, "Красота": 480, "Экономия": 110}.get(self.cfg["perf_mode"], 380)
+        n = int(min(self.cfg["density"], cap) * self.perf_scale)
         self.parts = []
-        per_kind = int(n / len(ks) * KIND_FACTOR.get(ks[0], 1.0)) if ks else 0
         for k in ks:
-            cnt = int(n / len(ks) * KIND_FACTOR.get(k, 1.0))
-            for _ in range(cnt):
+            count = int(n / len(ks) * KIND_FACTOR.get(k, 1.0))
+            for _ in range(count):
                 self.parts.append(self.make_particle(k, True))
-        _ = per_kind
         if self.bliz:
-            for _ in range(int(150 * self.cfg["blizzard_power"])):
+            storm_n = int(min(180, 140 * self.cfg["blizzard_power"]) * self.perf_scale)
+            for _ in range(storm_n):
                 self.parts.append(self.make_particle("snow", True, True))
         self.dirty_particles = False
         self.raise_all()
 
     def make_particle(self, kind, random_y, storm=False):
         cv, cfg = self.cv, self.cfg
-        d = random.uniform(0.35, 1.0)
-        r = max(1.5, cfg["size"] * d)
-        x = random.uniform(0, max(10, self.W))
+        d = random.uniform(0.32, 1.0)
+        r = max(1.6, cfg["size"] * d)
+        x = random.uniform(0, self.W)
         rise = kind in ("bubble", "lantern")
         if random_y:
-            y = random.uniform(0, max(10, self.H))
+            y = random.uniform(0, self.H)
         else:
             y = self.H + r * 4 if rise else -r * 4
-        p = {
-            "k": kind,
-            "x": x,
-            "y": y,
-            "py": y,
-            "vx": 0.0,
-            "vy": 0.0,
-            "r": r,
-            "d": d,
-            "size": r,
-            "ph": random.uniform(0, 6.3),
-            "flip": random.uniform(0, 6.3),
-            "rot": random.uniform(0, 6.3),
-            "spin": random.uniform(-0.07, 0.07),
-            "hid": False,
-            "lands": True,
-            "mat": "snow",
-            "amt": 1.0,
-            "tv": 1.0,
-            "drag": 0.08,
-            "sway": 0.6,
-            "mob": 1.0,
-            "storm": storm,
-            "shape": None,
-            "draw": "dot",
-            "ids": [],
-            "rise": rise,
-            "diag": False,
-            "col": "#FFFFFF",
-            "fspin": 0.07,
-        }
+        p = {"k": kind, "x": x, "y": y, "py": y, "vx": 0.0, "vy": 0.0, "r": r, "d": d,
+             "size": r, "ph": random.uniform(0, 6.3), "flip": random.uniform(0, 6.3),
+             "rot": random.uniform(0, 6.3), "spin": random.uniform(-0.07, 0.07),
+             "hid": False, "lands": True, "mat": "snow", "amt": 1.0, "tv": 1.0,
+             "drag": 0.08, "sway": 0.65, "mob": 1.0, "storm": storm, "shape": None,
+             "draw": "dot", "ids": [], "rise": rise, "diag": False, "col": "#FFFFFF",
+             "fspin": 0.07}
         if kind == "snow":
-            col = blend(cfg["snow_color"], 0.55 + 0.45 * d)
+            col = blend(cfg["snow_color"], 0.62 + 0.38 * d)
             style = cfg["snow_style"]
-            p.update(tv=0.6 + 1.5 * d, col=col)
-            if style == "Точки" or (style == "Все вместе" and random.random() < 0.3):
-                p["ids"] = [
-                    cv.create_oval(0, 0, 1, 1, fill=col, outline="", tags="flake")
-                ]
+            p.update(tv=0.65 + 1.55 * d, col=col)
+            # Дальние мелкие снежинки рисуются быстрыми точками, крупные — резными снежинками.
+            if style == "Точки" or (style == "Все вместе" and d < 0.62):
+                p["ids"] = [cv.create_oval(0, 0, 1, 1, fill=col, outline="", tags="flake")]
             else:
-                ch = {
-                    "Звёздочки ❄": "❄",
-                    "Хлопья ❅": "❅",
-                    "Кристаллы ❆": "❆",
-                }.get(style) or random.choice("❄❅❆")
-                p["draw"] = "glyph"
-                p["ids"] = [
-                    cv.create_text(
-                        x,
-                        y,
-                        text=ch,
-                        fill=col,
-                        tags="flake",
-                        font=("Segoe UI Symbol", max(7, int(r * 3))),
-                    )
-                ]
+                shapes = ("Звёздочки ❄", "Хлопья ❅", "Кристаллы ❆")
+                shape = random.choice(shapes) if style == "Все вместе" else style
+                p.update(draw="snowflake", snow_shape=shape)
+                p["ids"] = [cv.create_line(x, y, x + 1, y + 1, fill=col,
+                                           width=max(1.0, r * 0.28), capstyle="round",
+                                           joinstyle="round", tags="flake")]
         elif kind == "leaf":
             col = random.choice(AUTUMN)
-            p.update(
-                draw="poly",
-                shape=LEAF,
-                size=r * 1.5 + 3,
-                tv=0.55 + 1.0 * d,
-                sway=1.4,
-                drag=0.05,
-                mat="leaf",
-                amt=1.3,
-                col=col,
-            )
-            p["ids"] = [
-                cv.create_polygon(
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    fill=col,
-                    outline=blend(col, 0.6),
-                    smooth=True,
-                    tags="flake",
-                )
-            ]
+            p.update(draw="poly", shape=LEAF, size=r * 1.5 + 3, tv=0.55 + 1.0 * d,
+                     sway=1.4, drag=0.05, mat="leaf", amt=1.3, col=col)
+            p["ids"] = [cv.create_polygon(0, 0, 0, 0, 0, 0, fill=col, outline=blend(col, 0.6),
+                                          smooth=True, tags="flake")]
         elif kind == "spring":
             if random.random() < 0.55:
                 col = random.choice(SPRING_LEAF)
@@ -1876,139 +1357,41 @@ class Engine:
             else:
                 col = random.choice(PETAL_COL)
                 p.update(shape=PETAL, size=r * 0.9 + 2)
-            p.update(
-                draw="poly",
-                tv=0.45 + 0.8 * d,
-                sway=1.2,
-                drag=0.05,
-                mat="spring",
-                amt=0.8,
-                col=col,
-            )
-            p["ids"] = [
-                cv.create_polygon(
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    fill=col,
-                    outline=blend(col, 0.7),
-                    smooth=True,
-                    tags="flake",
-                )
-            ]
+            p.update(draw="poly", tv=0.45 + 0.8 * d, sway=1.2, drag=0.05, mat="spring",
+                     amt=0.8, col=col)
+            p["ids"] = [cv.create_polygon(0, 0, 0, 0, 0, 0, fill=col, outline=blend(col, 0.7),
+                                          smooth=True, tags="flake")]
         elif kind == "firefly":
             col = random.choice(FLY_COL)
-            p.update(
-                draw="fly",
-                lands=False,
-                col=col,
-                tv=0.0,
-                r=max(1.5, cfg["size"] * 0.5 * d),
-            )
-            p["ids"] = [
-                cv.create_oval(0, 0, 1, 1, fill=blend(col, 0.25), outline="", tags="flake"),
-                cv.create_oval(0, 0, 1, 1, fill=col, outline="", tags="flake"),
-            ]
+            p.update(draw="fly", lands=False, col=col, tv=0.0, r=max(1.5, cfg["size"] * 0.5 * d))
+            p["ids"] = [cv.create_oval(0, 0, 1, 1, fill=blend(col, 0.25), outline="", tags="flake"),
+                        cv.create_oval(0, 0, 1, 1, fill=col, outline="", tags="flake")]
         elif kind == "confetti":
             col = random.choice(CONFETTI_COL)
-            p.update(
-                draw="poly",
-                shape=RECT,
-                size=r * 0.9 + 2,
-                tv=0.9 + 1.0 * d,
-                sway=1.0,
-                mat="confetti",
-                amt=0.6,
-                col=col,
-                spin=random.uniform(-0.25, 0.25),
-                fspin=0.22,
-            )
-            p["ids"] = [
-                cv.create_polygon(0, 0, 0, 0, 0, 0, fill=col, outline="", tags="flake")
-            ]
+            p.update(draw="poly", shape=RECT, size=r * 0.9 + 2, tv=0.9 + 1.0 * d, sway=1.0,
+                     mat="confetti", amt=0.6, col=col, spin=random.uniform(-0.25, 0.25), fspin=0.22)
+            p["ids"] = [cv.create_polygon(0, 0, 0, 0, 0, 0, fill=col, outline="", tags="flake")]
         elif kind == "bubble":
             rr = max(3.0, cfg["size"] * 1.6 * d + 3)
-            p.update(
-                draw="bubble", r=rr, tv=-(0.4 + 0.8 * d), sway=1.6, lands=False, drag=0.05
-            )
-            p["ids"] = [
-                cv.create_oval(
-                    0, 0, 1, 1, fill="", outline="#BFE9FF", width=1, tags="flake"
-                ),
-                cv.create_oval(0, 0, 1, 1, fill="#FFFFFF", outline="", tags="flake"),
-            ]
+            p.update(draw="bubble", r=rr, tv=-(0.4 + 0.8 * d), sway=1.6, lands=False, drag=0.05)
+            p["ids"] = [cv.create_oval(0, 0, 1, 1, fill="", outline="#BFE9FF", width=1, tags="flake"),
+                        cv.create_oval(0, 0, 1, 1, fill="#FFFFFF", outline="", tags="flake")]
         elif kind == "heart":
             col = random.choice(HEART_COL)
-            p.update(
-                draw="glyph", tv=0.7 + 0.9 * d, sway=1.0, mat="heart", amt=0.7, col=col
-            )
-            p["ids"] = [
-                cv.create_text(
-                    x,
-                    y,
-                    text="♥",
-                    fill=col,
-                    tags="flake",
-                    font=("Segoe UI Symbol", max(8, int(r * 3.2) + 4)),
-                )
-            ]
+            p.update(draw="heart", tv=0.7 + 0.9 * d, sway=1.0, mat="heart", amt=0.7, col=col)
+            p["ids"] = [cv.create_polygon(0, 0, 0, 0, 0, 0, fill=col, outline="", smooth=True, tags="flake")]
         elif kind == "star":
             col = random.choice(STAR_COL)
-            p.update(
-                draw="glyph",
-                tv=1.2 + 1.8 * d,
-                sway=0.3,
-                drag=0.1,
-                mat=None,
-                col=col,
-                diag=True,
-            )
-            p["ids"] = [
-                cv.create_text(
-                    x,
-                    y,
-                    text=random.choice("★✦"),
-                    fill=col,
-                    tags="flake",
-                    font=("Segoe UI Symbol", max(8, int(r * 3) + 4)),
-                )
-            ]
+            p.update(draw="star4", tv=1.3 + 2.0 * d, sway=0.35, drag=0.1, mat=None, col=col, diag=True)
+            p["ids"] = [cv.create_polygon(0, 0, 0, 0, 0, 0, fill=col, outline="#FFFFFF", tags="flake")]
         elif kind == "rain":
-            col = blend("#9CC4F0", 0.6 + 0.4 * d)
-            p.update(
-                draw="line", tv=9 + 8 * d, drag=0.3, mob=0.4, sway=0.0, mat=None, col=col
-            )
-            p["ids"] = [
-                cv.create_line(
-                    0,
-                    0,
-                    1,
-                    1,
-                    fill=col,
-                    width=2 if d > 0.75 else 1,
-                    tags="flake",
-                )
-            ]
+            col = blend("#9CC4F0", 0.65 + 0.35 * d)
+            p.update(draw="line", tv=10 + 9 * d, drag=0.3, mob=0.4, sway=0.0, mat=None, col=col)
+            p["ids"] = [cv.create_line(0, 0, 1, 1, fill=col, width=2 if d > 0.75 else 1, tags="flake")]
         else:  # lantern
-            p.update(
-                draw="lantern",
-                size=r * 1.2 + 6,
-                tv=-(0.45 + 0.5 * d),
-                sway=1.2,
-                lands=False,
-                drag=0.04,
-            )
-            p["ids"] = [
-                cv.create_oval(
-                    0, 0, 1, 1, fill="#FF9A3C", outline="", stipple="gray25", tags="flake"
-                ),
-                cv.create_oval(
-                    0, 0, 1, 1, fill="#FF8F3A", outline="#FFD08A", tags="flake"
-                ),
-            ]
+            p.update(draw="lantern", size=r * 1.2 + 6, tv=-(0.45 + 0.5 * d), sway=1.2, lands=False, drag=0.04)
+            p["ids"] = [cv.create_oval(0, 0, 1, 1, fill="#FF9A3C", outline="", stipple="gray25", tags="flake"),
+                        cv.create_oval(0, 0, 1, 1, fill="#FF8F3A", outline="#FFD08A", tags="flake")]
         p["vy"] = p["tv"] * cfg["speed"]
         self.place(p)
         return p
@@ -2017,8 +1400,42 @@ class Engine:
         cv, x, y, r, dr, ids = self.cv, p["x"], p["y"], p["r"], p["draw"], p["ids"]
         if dr == "dot":
             cv.coords(ids[0], x - r, y - r, x + r, y + r)
-        elif dr == "glyph":
-            cv.coords(ids[0], x, y)
+        elif dr == "star4":
+            rot = p["rot"]
+            pts = []
+            for q in range(8):
+                a = rot + q * math.pi / 4.0
+                rad = r * 1.65 if q % 2 == 0 else r * 0.42
+                pts.extend((x + math.cos(a) * rad, y + math.sin(a) * rad))
+            cv.coords(ids[0], *pts)
+        elif dr == "heart":
+            s = r * 0.95
+            cv.coords(ids[0],
+                      x, y + s * 1.2,
+                      x - s * 1.2, y + s * 0.1,
+                      x - s * 0.85, y - s * 0.85,
+                      x, y - s * 0.35,
+                      x + s * 0.85, y - s * 0.85,
+                      x + s * 1.2, y + s * 0.1)
+        elif dr == "snowflake":
+            coords = [x, y]
+            shape = p["snow_shape"]
+            rot = p["rot"]
+            for arm in range(6):
+                a = rot + arm * math.tau / 6.0
+                ux, uy = math.cos(a), math.sin(a)
+                coords.extend((x + ux * r * 1.45, y + uy * r * 1.45))
+                if shape != "Звёздочки ❄":
+                    branches = ((0.46, 0.28, 0.72), (0.72, 0.2, 0.82)) if shape == "Хлопья ❅" \
+                        else ((0.56, 0.32, 0.55),)
+                    for along, size, angle in branches:
+                        bx, by = x + ux * r * along, y + uy * r * along
+                        coords.extend((bx, by))
+                        for side in (-1, 1):
+                            ca, sa = math.cos(a + side * angle), math.sin(a + side * angle)
+                            coords.extend((bx + ca * r * size, by + sa * r * size, bx, by))
+                coords.extend((x, y))
+            cv.coords(ids[0], *coords)
         elif dr == "fly":
             cv.coords(ids[0], x - r * 2.4, y - r * 2.4, x + r * 2.4, y + r * 2.4)
             cv.coords(ids[1], x - r * 0.8, y - r * 0.8, x + r * 0.8, y + r * 0.8)
@@ -2036,18 +1453,18 @@ class Engine:
             cv.coords(ids[0], *shape_pts(p["shape"], x, y, p["size"], p["rot"], wf))
 
     def respawn(self, p):
-        p["x"] = random.uniform(0, max(10, self.W))
+        p["x"] = random.uniform(0, self.W)
         p["y"] = p["py"] = (self.H + p["r"] * 4) if p["rise"] else -p["r"] * 4
         p["vx"] = 0.0
         p["vy"] = p["tv"] * self.cfg["speed"]
 
     def update_particles(self, now):
         cfg, cv = self.cfg, self.cv
-        spd = cfg["speed"] * (1 + self.bliz_f * cfg["blizzard_power"] * 0.8)
+        frame_scale = self.frame_scale
+        spd = cfg["speed"] * frame_scale * (1 + self.bliz_f * cfg["blizzard_power"] * 0.8)
         wob = cfg["wobble"]
         wind = self.wind_now(now)
         W, H = self.W, self.H
-        surfs = self.surfaces
         pile_en = cfg["pile_enabled"]
         phys = cfg["cursor_mode"].startswith("Физика") and self.cur is not None
         if phys:
@@ -2061,7 +1478,7 @@ class Engine:
             if p["storm"] and not storm_on and random.random() < 0.04:
                 dead.append(p)
                 continue
-            p["ph"] += 0.05
+            p["ph"] += 0.05 * frame_scale
             dr = p["draw"]
             if dr == "fly":
                 p["x"] += (math.cos(p["ph"] * 0.7) * 0.8 + wind * 0.3) * spd
@@ -2092,7 +1509,7 @@ class Engine:
                         d2 = ddx * ddx + ddy * ddy
                         if 0.01 < d2 < rad2:
                             dist = math.sqrt(d2)
-                            f = 1 - dist / rad
+                            f = (1 - dist / rad)
                             f = f * f * force
                             vx += ddx / dist * f * 2.4 + cvx * 0.14 * f
                             vy += ddy / dist * f * 2.4 + cvy * 0.14 * f
@@ -2118,7 +1535,8 @@ class Engine:
                 else:
                     hit = None
                     if p["lands"]:
-                        for (key, a, e, top, left, width) in surfs:
+                        for (key, a, e, top, left, width) in self.surface_index.get(
+                                int(x // SURFACE_BUCKET), ()):
                             if a <= x <= e:
                                 ys = top - (self.pile_h(key, left, x) if pile_en else 0.0)
                                 if py < ys <= y:
@@ -2131,14 +1549,8 @@ class Engine:
                         elif k == "star":
                             self.burst(x, hit[3], 10, p["col"])
                         elif pile_en and p["mat"]:
-                            self.land(
-                                hit[0],
-                                hit[1],
-                                hit[2],
-                                x,
-                                p["mat"],
-                                p["amt"] * (0.4 + p["d"]) * cfg["pile_rate"],
-                            )
+                            self.land(hit[0], hit[1], hit[2], x, p["mat"],
+                                      p["amt"] * (0.4 + p["d"]) * cfg["pile_rate"])
                         respawn = True
                     elif y > H + 14:
                         respawn = True
@@ -2152,16 +1564,7 @@ class Engine:
                 elif p["x"] < -14:
                     p["x"] = W + 14
                 if p["k"] == "star" and self.frame % 2 == 0:
-                    self.spawn_fx(
-                        p["x"],
-                        p["y"],
-                        -p["vx"] * 0.1,
-                        -p["vy"] * 0.1,
-                        10,
-                        p["col"],
-                        1.4,
-                        drag=0.9,
-                    )
+                    self.spawn_fx(p["x"], p["y"], -p["vx"] * 0.1, -p["vy"] * 0.1, 10, p["col"], 1.5, drag=0.9)
             self.place(p)
         if dead:
             for p in dead:
@@ -2172,48 +1575,23 @@ class Engine:
 
     def pop_bubble(self, p):
         for _ in range(6):
-            self.spawn_fx(
-                p["x"],
-                p["y"],
-                random.uniform(-1.8, 1.8),
-                random.uniform(-1.8, 1.0),
-                12,
-                "#BFE9FF",
-                1.6,
-                g=0.05,
-            )
+            self.spawn_fx(p["x"], p["y"], random.uniform(-1.8, 1.8), random.uniform(-1.8, 1.0),
+                          12, "#BFE9FF", 1.6, g=0.05)
 
     def splash(self, x, y):
         for _ in range(3):
-            self.spawn_fx(
-                x,
-                y - 1,
-                random.uniform(-1.4, 1.4),
-                -random.uniform(1.0, 2.6),
-                11,
-                "#9CC4F0",
-                1.4,
-                g=0.25,
-            )
+            self.spawn_fx(x, y - 1, random.uniform(-1.4, 1.4), -random.uniform(1.0, 2.6),
+                          11, "#9CC4F0", 1.4, g=0.25)
 
     def burst(self, x, y, n, col):
         for _ in range(n):
             a = random.uniform(0, 6.283)
             s = random.uniform(0.8, 2.8)
-            self.spawn_fx(
-                x,
-                y,
-                math.cos(a) * s,
-                math.sin(a) * s - 1,
-                16,
-                col,
-                1.6,
-                g=0.08,
-                drag=0.93,
-            )
+            self.spawn_fx(x, y, math.cos(a) * s, math.sin(a) * s - 1, 16, col, 1.6, g=0.08, drag=0.93)
 
+    # ---- сугробы
     def get_pile(self, key, width):
-        n = max(1, int(width // BIN) + 3)
+        n = int(width // BIN) + 3
         p = self.piles.get(key)
         if p is None:
             p = {"h": [0.0] * n, "m": [None] * n}
@@ -2241,23 +1619,35 @@ class Engine:
             if 0 <= j < len(h):
                 h[j] = min(cap, h[j] + amt * k)
                 m[j] = mat
-        self.pile_dirty = True
+        self.mark_pile_dirty(key)
 
-    def redraw_piles(self):
+    def redraw_piles(self, incremental=False):
         cv = self.cv
-        cv.delete("pile")
+        full = not incremental or self.pile_full_dirty
+        if full:
+            cv.delete("pile")
+            self.pile_items.clear()
+            keys = set(self.surf_info) | set(self.piles)
+        else:
+            keys = set(self.dirty_pile_keys)
+            for key in keys:
+                for item in self.pile_items.pop(key, ()):
+                    cv.delete(item)
         self.pile_dirty = False
+        self.pile_full_dirty = False
+        self.dirty_pile_keys.clear()
         if not self.cfg["pile_enabled"]:
             return
         cap = self.cfg["pile_max"]
-        for p in self.piles.values():
-            relax(p["h"], cap)
-        for key, d in self.surf_info.items():
+        for key in keys:
             p = self.piles.get(key)
-            if not p:
+            d = self.surf_info.get(key)
+            if not p or not d:
                 continue
+            relax(p["h"], cap)
             h, m, left, top = p["h"], p["m"], d["left"], d["top"]
             tg = ("pile", "w%s" % key)
+            items = self.pile_items.setdefault(key, [])
             for (a, c) in d["spans"]:
                 samples = []
                 x = a
@@ -2278,22 +1668,19 @@ class Engine:
                         e += 1
                     if mt is not None:
                         lo, hi = max(0, s - 1), min(n - 1, e + 1)
-                        seg = samples[lo : hi + 1]
+                        seg = samples[lo:hi + 1]
                         if max(q[1] for q in seg) >= 0.8:
                             pts = []
                             for (qx, qh, _m) in seg:
                                 pts += [qx, top - qh]
                             pts += [seg[-1][0], top, seg[0][0], top]
                             col = MAT_COLOR.get(mt, "#FFFFFF")
-                            cv.create_polygon(
-                                *pts,
-                                fill=col,
-                                outline=blend(col, 0.85),
-                                width=1,
-                                tags=tg,
-                            )
+                            item = cv.create_polygon(*pts, fill=col, outline=blend(col, 0.85),
+                                                     width=1, tags=tg)
+                            items.append(item)
                     s = e + 1
 
+    # ---- гирлянда (только сверху экрана)
     def garland_style(self):
         v = self.cfg["garland_style"]
         if v.startswith("Авто"):
@@ -2301,7 +1688,6 @@ class Engine:
         return GARLAND_STYLES.get(v, "bulb")
 
     def glow(self, cx, cy, R, st1, st2, col, tg):
-        """Свечение: многоугольники (на овалах штриховка в Windows не работает)."""
         cv = self.cv
         a, b = [], []
         for q in range(14):
@@ -2318,89 +1704,34 @@ class Engine:
         if style == "bulb":
             col = cols[k % 4]
             g1, g2 = self.glow(bx, by + 5 + r * 1.1, r * 1.5, st1, st2, col, tg)
-            cv.create_rectangle(
-                bx - 2, by, bx + 2, by + 5, fill="#37474F", outline="", tags=tg
-            )
-            core = cv.create_oval(
-                bx - r * 0.85,
-                by + 4,
-                bx + r * 0.85,
-                by + 4 + r * 2.2,
-                fill=col,
-                outline=mix(col, "#FFFFFF", 0.5),
-                tags=tg,
-            )
-            cv.create_oval(
-                bx - r * 0.5,
-                by + 5 + r * 0.3,
-                bx - r * 0.1,
-                by + 5 + r * 0.9,
-                fill="#FFFFFF",
-                outline="",
-                tags=tg,
-            )
+            cv.create_rectangle(bx - 2, by, bx + 2, by + 5, fill="#37474F", outline="", tags=tg)
+            core = cv.create_oval(bx - r * 0.85, by + 4, bx + r * 0.85, by + 4 + r * 2.2,
+                                  fill=col, outline=mix(col, "#FFFFFF", 0.5), tags=tg)
+            cv.create_oval(bx - r * 0.5, by + 5 + r * 0.3, bx - r * 0.1, by + 5 + r * 0.9,
+                           fill="#FFFFFF", outline="", tags=tg)
             return (core, g1, g2, col, k)
         if style == "icicle":
             L = 14 + (k * 7) % 22
             wd = r * 0.8 + 3
-            cv.create_polygon(
-                bx - wd,
-                by + 1,
-                bx + wd,
-                by + 1,
-                bx,
-                by + 2 + L,
-                fill="#D6EEFF",
-                outline="#8CC8FF",
-                tags=tg,
-            )
-            cv.create_line(
-                bx - wd * 0.35,
-                by + 4,
-                bx - wd * 0.1,
-                by + L * 0.7,
-                fill="#FFFFFF",
-                tags=tg,
-            )
             col = "#8FD8FF"
-            g1, g2 = self.glow(bx, by + 2 + L, r * 0.9, st1, st2, col, tg)
-            tip = cv.create_oval(
-                bx - 2.4,
-                by + L - 1,
-                bx + 2.4,
-                by + L + 4,
-                fill=col,
-                outline="",
-                tags=tg,
-            )
-            return (tip, g1, g2, col, k)
+            glow_shape = [bx - wd - 2, by, bx + wd + 2, by, bx, by + 2 + L]
+            body_shape = [bx - wd, by + 1, bx + wd, by + 1, bx, by + 2 + L]
+            g1 = cv.create_polygon(*glow_shape, fill=col, outline="", stipple=st1, tags=tg)
+            g2 = cv.create_polygon(*glow_shape, fill=col, outline="", stipple=st2, tags=tg)
+            body = cv.create_polygon(*body_shape, fill="#C9F0FF", outline="#8CC8FF", tags=tg)
+            cv.create_line(bx - wd * 0.35, by + 4, bx - wd * 0.1, by + L * 0.7, fill="#FFFFFF", tags=tg)
+            return (body, g1, g2, col, k)
         if style == "ball":
             rb = r * 1.1 + 4
             col = cols[k % 4]
             cy = by + 5 + rb
             cv.create_line(bx, by, bx, by + 5, fill=wire, tags=tg)
-            cv.create_rectangle(
-                bx - 2.5, by + 3, bx + 2.5, by + 7, fill="#E6C14B", outline="", tags=tg
-            )
+            cv.create_rectangle(bx - 2.5, by + 3, bx + 2.5, by + 7, fill="#E6C14B", outline="", tags=tg)
             g1, g2 = self.glow(bx, cy, rb * 0.9, st1, st2, col, tg)
-            body = cv.create_oval(
-                bx - rb,
-                cy - rb,
-                bx + rb,
-                cy + rb,
-                fill=col,
-                outline=blend(col, 0.55),
-                tags=tg,
-            )
-            cv.create_oval(
-                bx - rb * 0.55,
-                cy - rb * 0.6,
-                bx - rb * 0.15,
-                cy - rb * 0.25,
-                fill="#FFFFFF",
-                outline="",
-                tags=tg,
-            )
+            body = cv.create_oval(bx - rb, cy - rb, bx + rb, cy + rb, fill=col,
+                                  outline=blend(col, 0.55), tags=tg)
+            cv.create_oval(bx - rb * 0.55, cy - rb * 0.6, bx - rb * 0.15, cy - rb * 0.25,
+                           fill="#FFFFFF", outline="", tags=tg)
             return (body, g1, g2, col, k)
         if style == "star":
             rs = r * 1.4 + 4
@@ -2413,9 +1744,7 @@ class Engine:
                 pts += [bx + math.cos(ang) * rad, cy + math.sin(ang) * rad]
             cv.create_line(bx, by, bx, by + 4, fill=wire, tags=tg)
             g1, g2 = self.glow(bx, cy, rs * 0.9, st1, st2, col, tg)
-            st = cv.create_polygon(
-                *pts, fill=col, outline=mix(col, "#FFFFFF", 0.5), tags=tg
-            )
+            st = cv.create_polygon(*pts, fill=col, outline=mix(col, "#FFFFFF", 0.5), tags=tg)
             return (st, g1, g2, col, k)
         if style == "lantern":
             rl = r * 1.1 + 4
@@ -2424,62 +1753,27 @@ class Engine:
             cy = by + 6 + hh
             cv.create_line(bx, by, bx, by + 6, fill=wire, tags=tg)
             g1, g2 = self.glow(bx, cy, rl, st1, st2, col, tg)
-            cv.create_rectangle(
-                bx - rl * 0.5,
-                cy - hh - 1,
-                bx + rl * 0.5,
-                cy - hh + 3,
-                fill="#5D4037",
-                outline="",
-                tags=tg,
-            )
-            body = cv.create_oval(
-                bx - rl,
-                cy - hh,
-                bx + rl,
-                cy + hh,
-                fill=col,
-                outline=blend(col, 0.55),
-                tags=tg,
-            )
-            cv.create_rectangle(
-                bx - rl * 0.5,
-                cy + hh - 3,
-                bx + rl * 0.5,
-                cy + hh + 1,
-                fill="#5D4037",
-                outline="",
-                tags=tg,
-            )
+            cv.create_rectangle(bx - rl * 0.5, cy - hh - 1, bx + rl * 0.5, cy - hh + 3,
+                                fill="#5D4037", outline="", tags=tg)
+            body = cv.create_oval(bx - rl, cy - hh, bx + rl, cy + hh, fill=col,
+                                  outline=blend(col, 0.55), tags=tg)
+            cv.create_rectangle(bx - rl * 0.5, cy + hh - 3, bx + rl * 0.5, cy + hh + 1,
+                                fill="#5D4037", outline="", tags=tg)
             return (body, g1, g2, col, k)
         if style == "flag":
             w = r * 1.2 + 4
             h = w * 1.6
             col = FLAG_COL[k % len(FLAG_COL)]
-            cv.create_polygon(
-                bx - w,
-                by + 1,
-                bx + w,
-                by + 1,
-                bx,
-                by + 1 + h,
-                fill=col,
-                outline=blend(col, 0.6),
-                tags=tg,
-            )
+            cv.create_polygon(bx - w, by + 1, bx + w, by + 1, bx, by + 1 + h,
+                              fill=col, outline=blend(col, 0.6), tags=tg)
             return None
         if style == "leaf":
             col = AUTUMN[(k * 5 + k // 3) % len(AUTUMN)]
             sz = r * 1.5 + 3
             cv.create_line(bx, by, bx, by + 4, fill=wire, width=1, tags=tg)
             rot = math.pi + math.sin(k * 1.7) * 0.5
-            cv.create_polygon(
-                *shape_pts(LEAF, bx, by + 4 + sz, sz, rot, 0.85),
-                fill=col,
-                outline=blend(col, 0.6),
-                smooth=True,
-                tags=tg,
-            )
+            cv.create_polygon(*shape_pts(LEAF, bx, by + 4 + sz, sz, rot, 0.85), fill=col,
+                              outline=blend(col, 0.6), smooth=True, tags=tg)
             return None
         pc = PETAL_COL[(k * 3 + k // 2) % len(PETAL_COL)]
         sz = r * 0.9 + 3
@@ -2488,54 +1782,30 @@ class Engine:
         for q in range(5):
             ang = q * 2 * math.pi / 5
             px, py = bx + math.cos(ang) * sz * 0.8, cy + math.sin(ang) * sz * 0.8
-            cv.create_oval(
-                px - sz * 0.55,
-                py - sz * 0.55,
-                px + sz * 0.55,
-                py + sz * 0.55,
-                fill=pc,
-                outline=blend(pc, 0.7),
-                tags=tg,
-            )
-        cv.create_oval(
-            bx - sz * 0.4,
-            cy - sz * 0.4,
-            bx + sz * 0.4,
-            cy + sz * 0.4,
-            fill="#FBC02D",
-            outline="",
-            tags=tg,
-        )
+            cv.create_oval(px - sz * 0.55, py - sz * 0.55, px + sz * 0.55, py + sz * 0.55,
+                           fill=pc, outline=blend(pc, 0.7), tags=tg)
+        cv.create_oval(bx - sz * 0.4, cy - sz * 0.4, bx + sz * 0.4, cy + sz * 0.4,
+                       fill="#FBC02D", outline="", tags=tg)
         return None
 
-    def build_garland_key(self, key, d):
+    def build_garland_top(self, key, d):
         cv, cfg = self.cv, self.cfg
         self.lights[key] = []
-        if not cfg["garland_enabled"]:
-            return
-        if isinstance(key, str) and not key.startswith("t"):
+        if not cfg["garland_enabled"] or not cfg["garland_top"]:
             return
         if cfg["garland_winter_only"] and self.season != "winter":
             return
         style = self.garland_style()
         tg = ("garland", "w%s" % key)
         cols = [cfg["color1"], cfg["color2"], cfg["color3"], cfg["color4"]]
-        sag, wire, ww, r = (
-            cfg["garland_sag"],
-            cfg["garland_wire"],
-            cfg["garland_width"],
-            cfg["bulb_size"],
-        )
+        sag, wire, ww, r = cfg["garland_sag"], cfg["garland_wire"], cfg["garland_width"], cfg["bulb_size"]
         gap = cfg["garland_gap"] * (0.6 if style == "icicle" else 1.0)
         y = d["top"]
-        k = (key % 7) if isinstance(key, int) else 0
-        st1, st2 = {
-            1: ("gray12", "gray25"),
-            2: ("gray25", "gray50"),
-            3: ("gray50", "gray75"),
-        }[int(cfg["garland_glow"])]
+        k = 0
+        st1, st2 = {1: ("gray12", "gray25"), 2: ("gray25", "gray50"),
+                    3: ("gray50", "gray75")}[int(cfg["garland_glow"])]
         for (a, b) in d["spans"]:
-            n_arcs = max(1, round((b - a) / max(10, cfg["garland_arc"])))
+            n_arcs = max(1, round((b - a) / cfg["garland_arc"]))
             w = (b - a) / n_arcs
             for i in range(n_arcs):
                 x0 = a + i * w
@@ -2544,30 +1814,17 @@ class Engine:
                     t = s / 20
                     pts += [x0 + t * w, y + 2 + sag * 4 * t * (1 - t)]
                 shadow = [v + (2 if j % 2 else 0) for j, v in enumerate(pts)]
-                cv.create_line(
-                    *shadow, fill=blend(wire, 0.35), width=ww + 2, smooth=True, tags=tg
-                )
+                cv.create_line(*shadow, fill=blend(wire, 0.35), width=ww + 2, smooth=True, tags=tg)
                 cv.create_line(*pts, fill=wire, width=ww, smooth=True, tags=tg)
                 for px in (x0, x0 + w):
-                    cv.create_oval(
-                        px - 3,
-                        y - 1,
-                        px + 3,
-                        y + 5,
-                        fill="#B0BEC5",
-                        outline="#37474F",
-                        tags=tg,
-                    )
-                cnt = max(1, int(w / max(4.0, gap)))
+                    cv.create_oval(px - 3, y - 1, px + 3, y + 5, fill="#B0BEC5",
+                                   outline="#37474F", tags=tg)
+                cnt = max(1, int(w / gap))
                 for j in range(cnt):
                     t = (j + 0.5) / cnt
                     bx = x0 + t * w
                     by = y + 2 + sag * 4 * t * (1 - t)
-                    st = (
-                        style
-                        if style != "mix"
-                        else ("bulb", "icicle", "ball", "star")[k % 4]
-                    )
+                    st = style if style != "mix" else ("bulb", "icicle", "ball", "star")[k % 4]
                     ent = self.deco(st, k, bx, by, r, cols, tg, wire, st1, st2)
                     if ent:
                         self.lights[key].append(ent)
@@ -2584,15 +1841,12 @@ class Engine:
                     f = 1.0 if (int(t * spd) + k) % 2 == 0 else 0.15
                 else:
                     f = 1.0
-                cv.itemconfigure(
-                    core,
-                    fill=mix(col, "#FFFFFF", 0.1 + 0.4 * f)
-                    if f > 0.35
-                    else blend(col, 0.45),
-                )
+                cv.itemconfigure(core, fill=mix(col, "#FFFFFF", 0.1 + 0.4 * f) if f > 0.35
+                                 else blend(col, 0.45))
                 cv.itemconfigure(g2, state="normal" if f > 0.4 else "hidden")
                 cv.itemconfigure(g1, state="normal" if f > 0.7 else "hidden")
 
+    # ---- курсор
     def update_cursor(self):
         px, py = self.get_cursor()
         x, y = px - self.vx, py - self.vy
@@ -2604,6 +1858,16 @@ class Engine:
         c[3] = c[3] * 0.6 + (y - c[1]) * 0.4
         c[0], c[1] = x, y
 
+    def surface_candidates(self, left, right):
+        candidates, seen = [], set()
+        first, last = int(left // SURFACE_BUCKET), int(right // SURFACE_BUCKET)
+        for bucket in range(first, last + 1):
+            for surface in self.surface_index.get(bucket, ()):
+                if surface not in seen:
+                    seen.add(surface)
+                    candidates.append(surface)
+        return candidates
+
     def interact(self, now):
         cfg = self.cfg
         mode = cfg["cursor_mode"]
@@ -2613,60 +1877,49 @@ class Engine:
         rad, pm = cfg["cursor_radius"], cfg["pile_max"]
         if mode.startswith("Сметать"):
             r2 = rad * 0.5
-            for (key, a, c, top, left, _width) in self.surfaces:
+            for (key, a, c, top, left, width) in self.surface_candidates(cx - r2, cx + r2):
                 if cx < a - r2 or cx > c + r2 or cy < top - pm - r2 or cy > top + r2:
                     continue
                 p = self.piles.get(key)
                 if not p:
                     continue
                 h = p["h"]
-                for i in range(
-                    max(0, int((cx - r2 - left) // BIN)),
-                    min(len(h) - 1, int((cx + r2 - left) // BIN)) + 1,
-                ):
+                for i in range(max(0, int((cx - r2 - left) // BIN)),
+                               min(len(h) - 1, int((cx + r2 - left) // BIN)) + 1):
                     bx = left + i * BIN
                     if h[i] > 0.05 and a <= bx <= c and abs(bx - cx) < r2:
                         h[i] = 0.0 if abs(bx - cx) < r2 * 0.6 else h[i] * 0.4
-                        self.pile_dirty = True
+                        self.mark_pile_dirty(key)
             keep = []
             for sm in self.snowmen:
                 pos = self.snowman_pos(sm)
-                if (
-                    pos
-                    and abs(pos[0] - cx) <= r2
-                    and pos[1] - 80 * cfg["snowman_size"] <= cy <= pos[1] + r2
-                ):
+                if pos and abs(pos[0] - cx) <= r2 and \
+                        pos[1] - 80 * cfg["snowman_size"] <= cy <= pos[1] + r2:
                     self.dirty_snowmen = True
                     continue
                 keep.append(sm)
             self.snowmen = keep
         elif cfg["cursor_blow"] and math.hypot(cvx, cvy) > 9:
             spawned = 0
-            for (key, a, c, top, left, _width) in self.surfaces:
+            for (key, a, c, top, left, width) in self.surface_candidates(cx - rad, cx + rad):
                 if cx < a - rad or cx > c + rad or cy < top - pm - rad or cy > top + rad:
                     continue
                 p = self.piles.get(key)
                 if not p:
                     continue
                 h, m = p["h"], p["m"]
-                for i in range(
-                    max(0, int((cx - rad * 0.7 - left) // BIN)),
-                    min(len(h) - 1, int((cx + rad * 0.7 - left) // BIN)) + 1,
-                ):
+                for i in range(max(0, int((cx - rad * 0.7 - left) // BIN)),
+                               min(len(h) - 1, int((cx + rad * 0.7 - left) // BIN)) + 1):
                     bx = left + i * BIN
                     if h[i] > 0.5 and a <= bx <= c and spawned < 8:
-                        self.spawn_chunk(
-                            bx,
-                            top - h[i],
-                            cvx * 0.35 + random.uniform(-1.5, 1.5),
-                            -random.uniform(1.0, 3.5) + cvy * 0.15,
-                            m[i] or "snow",
-                            random.uniform(1.3, 2.6),
-                        )
+                        self.spawn_chunk(bx, top - h[i], cvx * 0.35 + random.uniform(-1.5, 1.5),
+                                         -random.uniform(1.0, 3.5) + cvy * 0.15, m[i] or "snow",
+                                         random.uniform(1.3, 2.6))
                         h[i] *= 0.55
                         spawned += 1
-                        self.pile_dirty = True
+                        self.mark_pile_dirty(key)
 
+    # ---- снеговики и подарки
     def snowman_radii(self, s=None):
         s = self.cfg["snowman_size"] if s is None else s
         return (13 * s, 9.5 * s, 6.5 * s)
@@ -2696,23 +1949,14 @@ class Engine:
                 if m >= 1.0:
                     if pos:
                         for _ in range(6):
-                            self.spawn_fx(
-                                pos[0] + random.uniform(-10, 10),
-                                pos[1] - 2,
-                                random.uniform(-0.8, 0.8),
-                                -random.uniform(0.5, 1.5),
-                                14,
-                                "#BFE9FF",
-                                1.5,
-                                g=0.15,
-                            )
+                            self.spawn_fx(pos[0] + random.uniform(-10, 10), pos[1] - 2,
+                                          random.uniform(-0.8, 0.8), -random.uniform(0.5, 1.5),
+                                          14, "#BFE9FF", 1.5, g=0.15)
                     continue
             keep.append(sm)
             if pos:
                 sc = 1.0 - 0.65 * max(0.0, (m - 0.4) / 0.6)
-                self.draw_snowman(
-                    pos[0], pos[1] + 1, sm["stage"], "w%s" % sm["key"], sc
-                )
+                self.draw_snowman(pos[0], pos[1] + 1, sm["stage"], "w%s" % sm["key"], sc)
         self.snowmen = keep
         for gf in self.gifts:
             info = self.surf_info.get(gf["key"])
@@ -2733,87 +1977,32 @@ class Engine:
         ol = "#9DB7D8"
         if stage >= 2:
             w = max(1, int(s * 1.5))
-            cv.create_line(
-                x - r2 * 0.9,
-                y2,
-                x - r2 * 2.0,
-                y2 - r2 * 0.9,
-                fill="#6D4C41",
-                width=w,
-                tags=t,
-            )
-            cv.create_line(
-                x + r2 * 0.9,
-                y2,
-                x + r2 * 2.0,
-                y2 - r2 * 0.9,
-                fill="#6D4C41",
-                width=w,
-                tags=t,
-            )
+            cv.create_line(x - r2 * 0.9, y2, x - r2 * 2.0, y2 - r2 * 0.9, fill="#6D4C41", width=w, tags=t)
+            cv.create_line(x + r2 * 0.9, y2, x + r2 * 2.0, y2 - r2 * 0.9, fill="#6D4C41", width=w, tags=t)
         balls = [(x, y1, r1)]
         if stage >= 2:
             balls.append((x, y2, r2))
         if stage >= 3:
             balls.append((x, y3, r3))
         for cx, cy, rr in balls:
-            cv.create_oval(
-                cx - rr, cy - rr, cx + rr, cy + rr, fill="#FFFFFF", outline=ol, width=1, tags=t
-            )
+            cv.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, fill="#FFFFFF", outline=ol, width=1, tags=t)
         e = max(1.0, s * 0.9)
         if stage >= 2:
             for k in (-0.4, 0.15, 0.7):
                 by = y2 + r2 * k
                 cv.create_oval(x - e, by - e, x + e, by + e, fill="#212121", outline="", tags=t)
         if stage >= 3:
-            cv.create_rectangle(
-                x - r3 * 0.85,
-                y3 + r3 * 0.55,
-                x + r3 * 0.85,
-                y3 + r3 * 0.95,
-                fill="#E53935",
-                outline="",
-                tags=t,
-            )
-            cv.create_rectangle(
-                x - r3 * 0.95,
-                y3 - r3 * 0.85,
-                x + r3 * 0.95,
-                y3 - r3 * 0.62,
-                fill="#212121",
-                outline="",
-                tags=t,
-            )
-            cv.create_rectangle(
-                x - r3 * 0.6,
-                y3 - r3 * 1.7,
-                x + r3 * 0.6,
-                y3 - r3 * 0.8,
-                fill="#212121",
-                outline="",
-                tags=t,
-            )
+            cv.create_rectangle(x - r3 * 0.85, y3 + r3 * 0.55, x + r3 * 0.85, y3 + r3 * 0.95,
+                                fill="#E53935", outline="", tags=t)
+            cv.create_rectangle(x - r3 * 0.95, y3 - r3 * 0.85, x + r3 * 0.95, y3 - r3 * 0.62,
+                                fill="#212121", outline="", tags=t)
+            cv.create_rectangle(x - r3 * 0.6, y3 - r3 * 1.7, x + r3 * 0.6, y3 - r3 * 0.8,
+                                fill="#212121", outline="", tags=t)
             for dx in (-r3 * 0.35, r3 * 0.35):
-                cv.create_oval(
-                    x + dx - e,
-                    y3 - r3 * 0.15 - e,
-                    x + dx + e,
-                    y3 - r3 * 0.15 + e,
-                    fill="#212121",
-                    outline="",
-                    tags=t,
-                )
-            cv.create_polygon(
-                x,
-                y3 + r3 * 0.05,
-                x + r3 * 1.1,
-                y3 + r3 * 0.2,
-                x,
-                y3 + r3 * 0.3,
-                fill="#FB8C00",
-                outline="",
-                tags=t,
-            )
+                cv.create_oval(x + dx - e, y3 - r3 * 0.15 - e, x + dx + e, y3 - r3 * 0.15 + e,
+                               fill="#212121", outline="", tags=t)
+            cv.create_polygon(x, y3 + r3 * 0.05, x + r3 * 1.1, y3 + r3 * 0.2, x, y3 + r3 * 0.3,
+                              fill="#FB8C00", outline="", tags=t)
 
     def has_snow(self):
         return any(p["h"] and max(p["h"]) >= 2.0 for p in self.piles.values())
@@ -2849,7 +2038,7 @@ class Engine:
         if not info:
             self.plow, self.last_plow = None, now
             return
-        pl["off"] += pl["dir"] * cfg["plow_speed"] * 1.2
+        pl["off"] += pl["dir"] * cfg["plow_speed"] * 1.2 * self.frame_scale
         if pl["off"] < -40 or pl["off"] > info["width"] + 40:
             self.plow, self.last_plow = None, now
             return
@@ -2858,10 +2047,7 @@ class Engine:
         if p:
             h = p["h"]
             fx = pl["off"] + pl["dir"] * 26
-            for i in range(
-                max(0, int((fx - 14) // BIN)),
-                min(len(h) - 1, int((fx + 14) // BIN)) + 1,
-            ):
+            for i in range(max(0, int((fx - 14) // BIN)), min(len(h) - 1, int((fx + 14) // BIN)) + 1):
                 if h[i] > 0:
                     h[i] = 0.0
                     self.pile_dirty = True
@@ -2878,91 +2064,35 @@ class Engine:
                 out += [x + pts[i] * d, y + pts[i + 1]]
             return out
 
-        cv.create_polygon(
-            *P(-34, -6, -34, -18, 20, -18, 24, -6),
-            fill="#FBC02D",
-            outline="#7A5B00",
-            tags=t,
-        )
-        cv.create_polygon(
-            *P(-28, -18, -22, -31, -4, -31, 2, -18),
-            fill="#FBC02D",
-            outline="#7A5B00",
-            tags=t,
-        )
-        cv.create_polygon(
-            *P(-24, -19, -20, -28, -8, -28, -5, -19),
-            fill="#B3E5FC",
-            outline="",
-            tags=t,
-        )
+        cv.create_polygon(*P(-34, -6, -34, -18, 20, -18, 24, -6), fill="#FBC02D", outline="#7A5B00", tags=t)
+        cv.create_polygon(*P(-28, -18, -22, -31, -4, -31, 2, -18), fill="#FBC02D", outline="#7A5B00", tags=t)
+        cv.create_polygon(*P(-24, -19, -20, -28, -8, -28, -5, -19), fill="#B3E5FC", outline="", tags=t)
         cv.create_line(*P(20, -12, 28, -12), fill="#5D4037", width=3, tags=t)
-        cv.create_polygon(
-            *P(26, -26, 42, -6, 42, 1, 26, 1),
-            fill="#EF6C00",
-            outline="#7A3300",
-            tags=t,
-        )
+        cv.create_polygon(*P(26, -26, 42, -6, 42, 1, 26, 1), fill="#EF6C00", outline="#7A3300", tags=t)
         for wx, wr in ((-20, 6), (8, 6)):
             cx = x + wx * d
-            cv.create_oval(
-                cx - wr,
-                y - 5 - wr,
-                cx + wr,
-                y - 5 + wr,
-                fill="#263238",
-                outline="",
-                tags=t,
-            )
-            cv.create_oval(
-                cx - 2, y - 7, cx + 2, y - 3, fill="#B0BEC5", outline="", tags=t
-            )
+            cv.create_oval(cx - wr, y - 5 - wr, cx + wr, y - 5 + wr, fill="#263238", outline="", tags=t)
+            cv.create_oval(cx - 2, y - 7, cx + 2, y - 3, fill="#B0BEC5", outline="", tags=t)
         bc = "#FF9800" if int(now * 6) % 2 == 0 else "#7A2E00"
         bx = x - 12 * d
-        cv.create_oval(
-            bx - 3, y - 37, bx + 3, y - 31, fill=bc, outline="", tags=t
-        )
+        cv.create_oval(bx - 3, y - 37, bx + 3, y - 31, fill=bc, outline="", tags=t)
 
-    def spawn_fx(
-        self, x, y, vx, vy, life, col, size, g=0.0, drag=0.97, glyph=None, ring=False
-    ):
+    # ---- эффекты-частицы
+    def spawn_fx(self, x, y, vx, vy, life, col, size, g=0.0, drag=0.97, glyph=None, ring=False):
         if len(self.fx) >= FX_LIMIT:
             return
         cv = self.cv
         if glyph:
-            i = cv.create_text(
-                x,
-                y,
-                text=glyph,
-                fill=col,
-                tags="fx",
-                font=("Segoe UI Symbol", max(6, int(size * 2.4))),
-            )
+            i = cv.create_text(x, y, text=glyph, fill=col, tags="fx",
+                               font=("Segoe UI Symbol", max(6, int(size * 2.4))))
         elif ring:
-            i = cv.create_oval(
-                x - size, y - size, x + size, y + size, fill="", outline=col, tags="fx"
-            )
+            i = cv.create_oval(x - size, y - size, x + size, y + size, fill="", outline=col, tags="fx")
         else:
-            i = cv.create_oval(
-                x - size, y - size, x + size, y + size, fill=col, outline="", tags="fx"
-            )
+            i = cv.create_oval(x - size, y - size, x + size, y + size, fill=col, outline="", tags="fx")
         self.below_mask(i)
         life = max(2, int(life))
-        self.fx.append({
-            "x": x,
-            "y": y,
-            "vx": vx,
-            "vy": vy,
-            "life": life,
-            "max": life,
-            "col": col,
-            "size": size,
-            "g": g,
-            "drag": drag,
-            "glyph": glyph,
-            "ring": ring,
-            "id": i,
-        })
+        self.fx.append({"x": x, "y": y, "vx": vx, "vy": vy, "life": life, "max": life, "col": col,
+                        "size": size, "g": g, "drag": drag, "glyph": glyph, "id": i})
 
     def update_fx(self):
         if not self.fx:
@@ -2984,14 +2114,10 @@ class Engine:
             if f["glyph"]:
                 cv.coords(f["id"], x, y)
             else:
-                s = f["size"] * (0.3 + 0.7 * k)
+                s = f["size"] * (0.25 + 0.75 * k)
                 cv.coords(f["id"], x - s, y - s, x + s, y + s)
-            if odd:
-                col_adj = blend(f["col"], 0.3 + 0.7 * k)
-                if f["ring"]:
-                    cv.itemconfigure(f["id"], outline=col_adj)
-                else:
-                    cv.itemconfigure(f["id"], fill=col_adj)
+            if odd and f["col"]:
+                cv.itemconfigure(f["id"], fill=blend(f["col"], 0.3 + 0.7 * k))
             keep.append(f)
         self.fx = keep
 
@@ -3009,84 +2135,25 @@ class Engine:
         for _ in range(count):
             px, py = cx + random.uniform(-3, 3), cy + random.uniform(-3, 3)
             if kind == "Искры":
-                self.spawn_fx(
-                    px,
-                    py,
-                    random.uniform(-1.5, 1.5) - vx * 0.05,
-                    random.uniform(-2, 0.5),
-                    life,
-                    random.choice(SPARK_COL),
-                    1.8 * sz,
-                    g=0.1,
-                )
+                self.spawn_fx(px, py, random.uniform(-1.5, 1.5) - vx * 0.05, random.uniform(-2, 0.5),
+                              life, random.choice(SPARK_COL), 1.8 * sz, g=0.1)
             elif kind == "Звёздная пыль":
-                self.spawn_fx(
-                    px,
-                    py,
-                    random.uniform(-0.5, 0.5),
-                    -random.uniform(0.1, 0.7),
-                    life * 1.5,
-                    random.choice(DUST_COL),
-                    2.6 * sz,
-                    glyph="✦",
-                )
-            elif kind == "Радуга":
-                self.spawn_fx(
-                    px,
-                    py,
-                    0,
-                    0,
-                    life,
-                    hsv_hex(now * 0.4 + random.random() * 0.05, 0.85, 1.0),
-                    3.5 * sz,
-                    drag=1.0,
-                )
+                self.spawn_fx(px, py, random.uniform(-0.5, 0.5), -random.uniform(0.1, 0.7), life * 1.5,
+                              random.choice(DUST_COL), 2.6 * sz, glyph="✦")
             elif kind == "Пузырьки":
-                self.spawn_fx(
-                    px,
-                    py,
-                    random.uniform(-0.4, 0.4),
-                    -random.uniform(0.4, 1.2),
-                    life * 1.5,
-                    "#BFE9FF",
-                    random.uniform(3, 6) * sz,
-                    ring=True,
-                    drag=0.99,
-                )
+                self.spawn_fx(px, py, random.uniform(-0.4, 0.4), -random.uniform(0.4, 1.2), life * 1.5,
+                              "#BFE9FF", random.uniform(3, 6) * sz, ring=True, drag=0.99)
             elif kind == "Сердечки":
-                self.spawn_fx(
-                    px,
-                    py,
-                    random.uniform(-0.5, 0.5),
-                    -random.uniform(0.5, 1.2),
-                    life * 1.5,
-                    random.choice(HEART_COL),
-                    2.8 * sz,
-                    glyph="♥",
-                )
+                self.spawn_fx(px, py, random.uniform(-0.5, 0.5), -random.uniform(0.5, 1.2), life * 1.5,
+                              random.choice(HEART_COL), 2.8 * sz, glyph="♥")
             elif kind == "Снежинки":
-                self.spawn_fx(
-                    px,
-                    py,
-                    random.uniform(-0.6, 0.6),
-                    random.uniform(0.2, 0.8),
-                    life * 1.5,
-                    "#FFFFFF",
-                    2.6 * sz,
-                    glyph="❄",
-                )
+                self.spawn_fx(px, py, random.uniform(-0.6, 0.6), random.uniform(0.2, 0.8), life * 1.5,
+                              "#FFFFFF", 2.6 * sz, glyph="❄")
             else:
-                self.spawn_fx(
-                    px,
-                    py,
-                    random.uniform(-0.5, 0.5),
-                    -random.uniform(0.8, 2.0),
-                    life,
-                    random.choice(FIRE_COL),
-                    3.5 * sz,
-                    drag=0.98,
-                )
+                self.spawn_fx(px, py, random.uniform(-0.5, 0.5), -random.uniform(0.8, 2.0), life,
+                              random.choice(FIRE_COL), 3.5 * sz, drag=0.98)
 
+    # ---- метеоры (объёмные, с огненно-золотым ядром, плазменным хвостом и искрами) и фейерверки
     def update_schedule(self, now):
         cfg = self.cfg
         if cfg["meteor_enabled"]:
@@ -3105,42 +2172,60 @@ class Engine:
                 self.next_fw = now + cfg["fw_every"] * random.uniform(0.5, 1.5)
         else:
             self.next_fw = 0.0
+
+        cv = self.cv
+        fs = self.frame_scale
         keep = []
         for m in self.meteors:
-            m["x"] += m["vx"]
-            m["y"] += m["vy"]
-            m["life"] -= 1
-            self.spawn_fx(
-                m["x"], m["y"], 0, 0, 3, "#FFFFFF", 2.6 * cfg["meteor_len"], drag=1.0
-            )
-            for _ in range(2):
-                self.spawn_fx(
-                    m["x"] - m["vx"] * random.random(),
-                    m["y"] - m["vy"] * random.random(),
-                    random.uniform(-0.3, 0.3),
-                    random.uniform(-0.3, 0.3),
-                    16 * cfg["meteor_len"],
-                    "#BFD8FF",
-                    1.6,
-                    drag=0.9,
-                )
-            if m["life"] > 0 and -80 < m["x"] < self.W + 80 and m["y"] < self.H:
+            m["x"] += m["vx"] * fs
+            m["y"] += m["vy"] * fs
+            m["life"] -= fs
+            x, y = m["x"], m["y"]
+            dx, dy = m["ux"], m["uy"]
+            nx, ny = -dy, dx
+            L = m["tail"] * max(0.25, m["life"] / m["max_life"])
+            w = m["width"]
+
+            # Внешний мягкий шлейф
+            cv.coords(m["outer"],
+                      x + dx * 6, y + dy * 6,
+                      x + nx * w * 2.2 - dx * 6, y + ny * w * 2.2 - dy * 6,
+                      x - dx * L, y - dy * L,
+                      x - nx * w * 2.2 - dx * 6, y - ny * w * 2.2 - dy * 6)
+            # Средний яркий плазменный хвост
+            cv.coords(m["mid"],
+                      x + dx * 5, y + dy * 5,
+                      x + nx * w * 1.15 - dx * 4, y + ny * w * 1.15 - dy * 4,
+                      x - dx * (L * 0.62), y - dy * (L * 0.62),
+                      x - nx * w * 1.15 - dx * 4, y - ny * w * 1.15 - dy * 4)
+            # Раскалённое белое ядро
+            cv.coords(m["core"], x - w * 1.3, y - w * 1.3, x + w * 1.3, y + w * 1.3)
+            cv.coords(m["halo"], x - w * 3.0, y - w * 3.0, x + w * 3.0, y + w * 3.0)
+
+            # Отлетающие искры с хвоста
+            if random.random() < 0.85:
+                back = random.uniform(4, L * 0.45)
+                sx = x - dx * back + nx * random.uniform(-w, w)
+                sy = y - dy * back + ny * random.uniform(-w, w)
+                self.spawn_fx(sx, sy,
+                              -dx * random.uniform(0.5, 2.0) + random.uniform(-0.8, 0.8),
+                              -dy * random.uniform(0.5, 2.0) + random.uniform(-0.8, 0.8),
+                              random.randint(10, 20),
+                              random.choice(("#FFF5CC", "#FFD166", "#90E0EF", "#FF9F1C")),
+                              random.uniform(1.1, 2.2), drag=0.92)
+
+            if m["life"] > 0 and -260 < x < self.W + 260 and y < self.H + 120:
                 keep.append(m)
+            else:
+                for iid in (m["outer"], m["mid"], m["core"], m["halo"]):
+                    cv.delete(iid)
         self.meteors = keep
+
         keep = []
         for rk in self.rockets:
-            rk["y"] += rk["vy"]
+            rk["y"] += rk["vy"] * fs
             self.spawn_fx(rk["x"], rk["y"], 0, 0, 2, "#FFFFFF", 2.4, drag=1.0)
-            self.spawn_fx(
-                rk["x"],
-                rk["y"],
-                random.uniform(-0.4, 0.4),
-                0.8,
-                12,
-                "#FF9F1C",
-                1.5,
-                drag=0.9,
-            )
+            self.spawn_fx(rk["x"], rk["y"], random.uniform(-0.4, 0.4), 0.8, 12, "#FF9F1C", 1.5, drag=0.9)
             if rk["y"] <= rk["ty"]:
                 self.firework_burst(rk["x"], rk["y"], rk["col"])
             else:
@@ -3148,50 +2233,55 @@ class Engine:
         self.rockets = keep
 
     def spawn_meteor(self):
+        cv = self.cv
         dirx = random.choice((-1, 1))
-        sp = random.uniform(14, 22)
-        x = (
-            random.uniform(0.15, 0.95) * self.W
-            if dirx < 0
-            else random.uniform(0.05, 0.85) * self.W
-        )
+        sp = random.uniform(15, 23)
+        vx = dirx * sp * 0.84
+        vy = sp * 0.54
+        mag = math.hypot(vx, vy)
+        ux, uy = vx / mag, vy / mag
+        x = random.uniform(0.2, 0.92) * self.W if dirx < 0 else random.uniform(0.08, 0.8) * self.W
+        y = random.uniform(0.02, 0.30) * self.H
+        mlen = self.cfg["meteor_len"]
+        tail = random.uniform(135, 220) * mlen
+        width = random.uniform(2.8, 4.4) * (0.7 + 0.3 * mlen)
+        palette = random.choice((
+            ("#48CAE4", "#FFD166", "#FFF8E7"),
+            ("#90E0EF", "#FF9F1C", "#FFFFFF"),
+            ("#B5179E", "#F72585", "#FFF3B0"),
+            ("#4CC9F0", "#FFE066", "#FFFFFF"),
+        ))
+        outer = cv.create_polygon(0, 0, 1, 0, 1, 1, 0, 1, fill=palette[0], outline="",
+                                  stipple="gray50", tags="fx")
+        mid = cv.create_polygon(0, 0, 1, 0, 1, 1, 0, 1, fill=palette[1], outline="", tags="fx")
+        halo = cv.create_oval(0, 0, 1, 1, fill=palette[1], outline="", stipple="gray25", tags="fx")
+        core = cv.create_oval(0, 0, 1, 1, fill=palette[2], outline="#FFFFFF", tags="fx")
+        for iid in (outer, mid, halo, core):
+            self.below_mask(iid)
+        life = random.randint(28, 46)
         self.meteors.append({
-            "x": x,
-            "y": random.uniform(0.02, 0.35) * self.H,
-            "vx": dirx * sp * 0.8,
-            "vy": sp * 0.45,
-            "life": random.randint(25, 45),
+            "x": x, "y": y, "vx": vx, "vy": vy, "ux": ux, "uy": uy,
+            "tail": tail, "width": width, "life": float(life), "max_life": float(life),
+            "outer": outer, "mid": mid, "halo": halo, "core": core
         })
 
     def spawn_rocket(self):
-        self.rockets.append({
-            "x": random.uniform(0.1, 0.9) * self.W,
-            "y": self.H - 60.0,
-            "vy": -random.uniform(9, 13),
-            "ty": random.uniform(0.12, 0.45) * self.H,
-            "col": random.choice(FW_COL),
-        })
+        self.rockets.append({"x": random.uniform(0.1, 0.9) * self.W, "y": self.H - 60.0,
+                             "vy": -random.uniform(9, 13), "ty": random.uniform(0.12, 0.45) * self.H,
+                             "col": random.choice(FW_COL)})
 
     def firework_burst(self, x, y, col):
         size = self.cfg["fw_size"]
-        n = min(90, int(48 * size))
+        n = min(95, int(52 * size))
         ring = random.random() < 0.3
         col2 = random.choice(FW_COL)
         for i in range(n):
             a = (i / n) * 6.283 if ring else random.uniform(0, 6.283)
             s = (3.2 if ring else random.uniform(1.2, 5.2)) * size
-            self.spawn_fx(
-                x,
-                y,
-                math.cos(a) * s,
-                math.sin(a) * s,
-                random.randint(35, 60),
-                col if random.random() < 0.7 else col2,
-                2.0,
-                g=0.06,
-                drag=0.96,
-            )
+            self.spawn_fx(x, y, math.cos(a) * s, math.sin(a) * s, random.randint(35, 60),
+                          col if random.random() < 0.7 else col2, 2.0, g=0.06, drag=0.96)
 
+    # ---- декоративные эффекты
     def effect_enabled(self, name):
         c = self.cfg
         if name == "sky":
@@ -3201,9 +2291,7 @@ class Engine:
         if name == "santa":
             return bool(c["santa_enabled"]) or self.santa is not None
         if name == "aurora":
-            return c["aurora_enabled"] and (
-                c["aurora_when"] == "Всегда" or self.season == "winter"
-            )
+            return c["aurora_enabled"] and (c["aurora_when"] == "Всегда" or self.season == "winter")
         return bool(c.get(name + "_enabled"))
 
     def update_effects(self, now):
@@ -3219,7 +2307,7 @@ class Engine:
                         getattr(self, "build_" + name)()
                         self.effect_on[name] = True
                         self.raise_all()
-                if self.effect_on.get(name) and name != "neon":
+                if self.effect_on.get(name):
                     getattr(self, "update_" + name)(now)
             except Exception:
                 if self.strict:
@@ -3234,19 +2322,33 @@ class Engine:
                 else:
                     self.cfg[name + "_enabled"] = False
 
+    # ---- северное сияние
     def build_aurora(self):
         cv = self.cv
-        self.aur_n = max(24, int(self.W // 12))
-        self.aur = []
-        for _ in range(self.aur_n):
-            top = cv.create_line(0, 0, 0, 1, width=6, fill="#1B7F5A", tags="e_aurora")
-            bot = cv.create_line(0, 0, 0, 1, width=6, fill="#39FF8A", tags="e_aurora")
-            self.aur.append((top, bot))
-        self.aur_col = [None] * self.aur_n
+        rng = random.Random(481)
+        count = max(14, min(28, int(self.W / 80)))
+        self.aurora_strands = []
+        for i in range(count):
+            x = (i + rng.uniform(-0.35, 0.35)) * self.W / count
+            self.aurora_strands.append({
+                "ribbon": cv.create_polygon(0, 0, 0, 1, 1, 1, 1, 0,
+                                             fill="#123B34", outline="", stipple="gray25",
+                                             smooth=True, tags="e_aurora"),
+                "core": cv.create_line(0, 0, 0, 1, fill="#73F3C1", width=2,
+                                       smooth=True, capstyle="round", stipple="gray50",
+                                       tags="e_aurora"),
+                "x": x,
+                "top": rng.uniform(0.0, 0.16),
+                "length": rng.uniform(0.55, 1.1),
+                "phase": rng.uniform(0.0, math.tau),
+                "bend": rng.uniform(22.0, 70.0),
+                "fold": rng.uniform(8.0, 26.0),
+                "width": rng.uniform(10.0, 34.0),
+                "color_pos": max(0.0, min(1.0, x / max(1.0, self.W))),
+            })
+        self.aurora_last_color = -1
 
     def aurora_color(self, name, pos, t, band=0):
-        if name == "Радужное":
-            return hsv_hex(pos * 0.7 + t * 0.03 + band * 0.15, 0.6, 1.0)
         pal = AURORA_PAL.get(name, AURORA_PAL["Зелёное"])
         x = ((pos + 0.15 * math.sin(t * 0.2 + band)) % 1.0) * (len(pal) - 1)
         i = int(x)
@@ -3254,267 +2356,366 @@ class Engine:
 
     def update_aurora(self, now):
         cv, cfg = self.cv, self.cfg
-        n, W, H = self.aur_n, self.W, self.H
         t = now * cfg["aurora_speed"]
-        Ht = H * cfg["aurora_height"] / 100.0
-        dark = 0.80 - 0.18 * int(cfg["aurora_power"])
-        step = 6
-        phase = self.frame % step
-        recolor = self.frame % 30 == 0
-        for i in range(phase, n, step):
-            x = (i + 0.5) * W / n
-            yt = (
-                Ht * 0.22
-                + Ht * 0.16 * math.sin(x * 0.004 + t * 0.5)
-                + Ht * 0.08 * math.sin(x * 0.011 - t * 0.8)
-            )
-            ln = Ht * (
-                0.40
-                + 0.22 * math.sin(x * 0.007 + t * 0.35)
-                + 0.10 * math.sin(x * 0.023 + t * 1.1)
-            )
-            ln = max(Ht * 0.12, ln)
-            top, bot = self.aur[i]
-            cv.coords(top, x, yt, x, yt + ln * 0.5)
-            cv.coords(bot, x, yt + ln * 0.5, x, yt + ln)
-        if recolor:
-            for i in range(n):
-                c = self.aurora_color(cfg["aurora_palette"], i / float(n), t)
-                if c != self.aur_col[i]:
-                    self.aur_col[i] = c
-                    cv.itemconfigure(self.aur[i][1], fill=c)
-                    cv.itemconfigure(self.aur[i][0], fill=mix(c, "#06121F", dark))
+        Ht = self.H * cfg["aurora_height"] / 100.0
+        power = int(cfg["aurora_power"])
+        phase_t = int(now * 3)
+        recolor = phase_t != self.aurora_last_color
+        self.aurora_last_color = phase_t
+        samples = 9
+        for strand in self.aurora_strands:
+            x0 = strand["x"]
+            y0 = Ht * strand["top"]
+            length = max(10.0, Ht * strand["length"])
+            centerline, left_edge, right_edge = [], [], []
+            for j in range(samples):
+                p = j / (samples - 1.0)
+                bend = math.sin(strand["phase"] + p * 2.8 + t * 0.16) * strand["bend"] * p
+                fold = math.sin(strand["phase"] * 1.7 + p * 5.2 - t * 0.11) * strand["fold"] * p
+                x = x0 + bend + fold
+                y = y0 + length * p + math.sin(strand["phase"] + x0 * 0.01 + t * 0.12) * Ht * 0.018 * p
+                width = strand["width"] * (0.18 + 0.82 * math.sin(math.pi * p) ** 0.7)
+                centerline.extend((x, y))
+                left_edge.extend((x - width * 0.5, y))
+                right_edge.extend((x + width * 0.5, y))
+            ribbon = left_edge + list(reversed(right_edge))
+            cv.coords(strand["ribbon"], *ribbon)
+            cv.coords(strand["core"], *centerline)
 
+            if recolor:
+                color = self.aurora_color(cfg["aurora_palette"], strand["color_pos"], t)
+                outer = 0.15 + 0.035 * power
+                core = 0.38 + 0.07 * power
+                cv.itemconfigure(strand["ribbon"], fill=mix(color, "#07131D", outer))
+                cv.itemconfigure(strand["core"], fill=mix(color, "#07131D", core))
+
+    # ---- звёздное небо: красивые 4-лучевые звёзды + периодически падающие звёзды
     def build_stars(self):
         cv, cfg = self.cv, self.cfg
-        rnd = random.Random(7)
+        rnd = random.Random(19)
         hh = self.H * cfg["stars_height"] / 100.0
         self.stars = []
+        self.sky_shooting = []
+        self.next_sky_shoot = self.now + random.uniform(2.5, 6.0)
+        tints = ("#FFFFFF", "#CFE6FF", "#FFF3C4", "#FFD8EE", "#B8E0FF")
         for _ in range(int(cfg["stars_count"])):
-            x, y = rnd.uniform(0, self.W), rnd.uniform(0, hh)
-            ch = rnd.choice(("✦", "✦", "✧", "⋆", "✶", "·"))
-            sz = rnd.choice((7, 8, 9, 10, 12, 14, 17))
-            tint = rnd.choice(("#FFFFFF", "#CFE3FF", "#FFF2C8", "#FFD6F0"))
-            i = cv.create_text(
-                x, y, text=ch, fill=tint, font=("Segoe UI Symbol", sz), tags="e_stars"
-            )
-            self.stars.append({"id": i, "ph": rnd.uniform(0, 6.3), "tint": tint})
+            x, y = rnd.uniform(12, self.W - 12), rnd.uniform(10, hh)
+            tint = rnd.choice(tints)
+            kind = rnd.random()
+            if kind < 0.24:
+                # Яркая 4-лучевая звезда с мягким ореолом
+                R = rnd.uniform(4.2, 7.6)
+                r_in = R * 0.22
+                halo = cv.create_oval(x - R * 1.15, y - R * 1.15, x + R * 1.15, y + R * 1.15,
+                                      fill=blend(tint, 0.28), outline="", stipple="gray25", tags="e_stars")
+                pts = [
+                    x, y - R,
+                    x + r_in, y - r_in,
+                    x + R, y,
+                    x + r_in, y + r_in,
+                    x, y + R,
+                    x - r_in, y + r_in,
+                    x - R, y,
+                    x - r_in, y - r_in,
+                ]
+                star_id = cv.create_polygon(*pts, fill=tint, outline="", tags="e_stars")
+                self.stars.append({"id": star_id, "halo": halo, "ph": rnd.uniform(0, 6.3),
+                                   "spd": rnd.uniform(1.4, 3.0), "tint": tint, "bright": True})
+            elif kind < 0.65:
+                # Средняя искорка-ромб
+                R = rnd.uniform(2.1, 3.6)
+                star_id = cv.create_polygon(x, y - R, x + R * 0.55, y, x, y + R, x - R * 0.55, y,
+                                            fill=tint, outline="", tags="e_stars")
+                self.stars.append({"id": star_id, "halo": None, "ph": rnd.uniform(0, 6.3),
+                                   "spd": rnd.uniform(1.2, 2.6), "tint": tint, "bright": False})
+            else:
+                # Далёкая звёздная пыль
+                R = rnd.uniform(1.0, 1.9)
+                star_id = cv.create_oval(x - R, y - R, x + R, y + R, fill=tint, outline="", tags="e_stars")
+                self.stars.append({"id": star_id, "halo": None, "ph": rnd.uniform(0, 6.3),
+                                   "spd": rnd.uniform(0.8, 2.0), "tint": tint, "bright": False})
 
     def update_stars(self, now):
-        if self.frame % 6:
-            return
-        tw = self.cfg["stars_twinkle"]
         cv = self.cv
-        for s in self.stars:
-            f = 0.5 + 0.5 * (0.5 + 0.5 * math.sin(now * tw * 2 + s["ph"]))
-            cv.itemconfigure(s["id"], fill=blend(s["tint"], f))
+        tw = self.cfg["stars_twinkle"]
+        if self.frame % 4 == 0:
+            for s in self.stars:
+                f = 0.42 + 0.58 * (0.5 + 0.5 * math.sin(now * tw * s["spd"] + s["ph"]))
+                cv.itemconfigure(s["id"], fill=blend(s["tint"], f))
+                if s["halo"]:
+                    cv.itemconfigure(s["halo"], fill=blend(s["tint"], f * 0.32))
 
+        # Падающие звёзды прямо в звёздном небе
+        if now >= self.next_sky_shoot and len(self.sky_shooting) < 3:
+            self.next_sky_shoot = now + random.uniform(3.0, 8.0)
+            hh = self.H * self.cfg["stars_height"] / 100.0
+            dirx = random.choice((-1, 1))
+            sx = random.uniform(0.1, 0.9) * self.W
+            sy = random.uniform(14, max(40, hh * 0.65))
+            sp = random.uniform(11, 17)
+            vx, vy = dirx * sp * 0.86, sp * 0.5
+            line_id = cv.create_line(sx, sy, sx, sy, fill="#FFF8DC", width=2.2,
+                                     capstyle="round", tags="e_stars")
+            head_id = cv.create_oval(sx - 2.5, sy - 2.5, sx + 2.5, sy + 2.5,
+                                     fill="#FFFFFF", outline="#FFE082", tags="e_stars")
+            self.sky_shooting.append({
+                "x": sx, "y": sy, "vx": vx, "vy": vy,
+                "life": 24.0, "max": 24.0, "line": line_id, "head": head_id
+            })
+
+        keep = []
+        fs = self.frame_scale
+        for sh in self.sky_shooting:
+            sh["x"] += sh["vx"] * fs
+            sh["y"] += sh["vy"] * fs
+            sh["life"] -= fs
+            k = max(0.0, sh["life"] / sh["max"])
+            tail = 58.0 * math.sin(math.pi * k) + 12.0
+            mag = math.hypot(sh["vx"], sh["vy"]) or 1.0
+            tx = sh["x"] - (sh["vx"] / mag) * tail
+            ty = sh["y"] - (sh["vy"] / mag) * tail
+            cv.coords(sh["line"], tx, ty, sh["x"], sh["y"])
+            r = 2.6 * (0.4 + 0.6 * k)
+            cv.coords(sh["head"], sh["x"] - r, sh["y"] - r, sh["x"] + r, sh["y"] + r)
+            cv.itemconfigure(sh["line"], fill=blend("#FFF3B0", 0.3 + 0.7 * k))
+            if sh["life"] > 0:
+                keep.append(sh)
+            else:
+                cv.delete(sh["line"])
+                cv.delete(sh["head"])
+        self.sky_shooting = keep
+
+    # ---- солнце и луна (детализированные, многослойные)
     def build_sky(self):
         cv, cfg = self.cv, self.cfg
         body = cfg["sky_body"]
         if body == "Авто":
             body = "Солнце" if 6 <= time.localtime().tm_hour < 19 else "Луна"
-        L, T, R, _B = self.widget_mon()
+        L, T, R, B = self.widget_mon()
         S = float(cfg["sky_size"])
-        cx = R - S * 1.5 if cfg["sky_corner"].startswith("Прав") else L + S * 1.5
-        cy = T + S * 1.35
-        self.sky = {"body": body, "cx": cx, "cy": cy, "S": S, "rays": []}
+        cx = R - S * 1.55 if cfg["sky_corner"].startswith("Прав") else L + S * 1.55
+        cy = T + S * 1.38
+        self.sky = {"body": body, "cx": cx, "cy": cy, "S": S, "rays": [], "corona": []}
         tg = "e_sky"
         if body == "Луна":
-            Rr = S * 0.5
-            for k, col, w in (
-                (1.9, "#5F78BF", 1),
-                (1.55, "#8FA6E0", 1),
-                (1.28, "#B9C9F2", 2),
-            ):
-                cv.create_oval(
-                    cx - Rr * k,
-                    cy - Rr * k,
-                    cx + Rr * k,
-                    cy + Rr * k,
-                    fill="",
-                    outline=col,
-                    width=w,
-                    tags=tg,
-                )
-            cv.create_oval(
-                cx - Rr,
-                cy - Rr,
-                cx + Rr,
-                cy + Rr,
-                fill="#F6F1D9",
-                outline="#FFFFFF",
-                width=2,
-                tags=tg,
-            )
-            for (ox, oy, rr) in (
-                (-0.28, -0.2, 0.17),
-                (0.22, 0.12, 0.12),
-                (0.05, -0.42, 0.09),
-                (-0.2, 0.32, 0.1),
-                (0.38, -0.25, 0.07),
-            ):
-                cv.create_oval(
-                    cx + Rr * (ox - rr),
-                    cy + Rr * (oy - rr),
-                    cx + Rr * (ox + rr),
-                    cy + Rr * (oy + rr),
-                    fill="#DAD4B8",
-                    outline="#C9C3A5",
-                    tags=tg,
-                )
+            Rr = S * 0.52
+            # Мягкое многослойное лунное гало
+            for k, col in ((2.15, "#233554"), (1.78, "#354F7A"), (1.46, "#5C7EB5"), (1.22, "#8FAEE0")):
+                cv.create_oval(cx - Rr * k, cy - Rr * k, cx + Rr * k, cy + Rr * k,
+                               fill=col, outline="", stipple="gray25", tags=tg)
+            # Основной диск луны с тёплым перламутровым градиентом
+            cv.create_oval(cx - Rr, cy - Rr, cx + Rr, cy + Rr,
+                           fill="#EAE4CE", outline="#FFFDF5", width=2, tags=tg)
+            cv.create_oval(cx - Rr * 0.92, cy - Rr * 0.92, cx + Rr * 0.84, cy + Rr * 0.84,
+                           fill="#F7F3E3", outline="", tags=tg)
+            # Моря (тёмные области) и кратеры с ободком
+            seas = ((-0.18, -0.22, 0.34, 0.24), (0.22, -0.10, 0.26, 0.30), (-0.12, 0.25, 0.30, 0.20))
+            for ox, oy, rx, ry in seas:
+                cv.create_oval(cx + Rr * (ox - rx), cy + Rr * (oy - ry),
+                               cx + Rr * (ox + rx), cy + Rr * (oy + ry),
+                               fill="#DFD8BE", outline="", tags=tg)
+            craters = ((-0.32, -0.18, 0.14), (0.26, 0.18, 0.11), (0.04, -0.44, 0.085),
+                       (-0.22, 0.34, 0.095), (0.40, -0.26, 0.065), (-0.04, 0.04, 0.075),
+                       (0.14, 0.44, 0.06))
+            for ox, oy, rr in craters:
+                cv.create_oval(cx + Rr * (ox - rr) + 1.5, cy + Rr * (oy - rr) + 1.5,
+                               cx + Rr * (ox + rr) + 1.5, cy + Rr * (oy + rr) + 1.5,
+                               fill="#FAF7EC", outline="", tags=tg)
+                cv.create_oval(cx + Rr * (ox - rr), cy + Rr * (oy - rr),
+                               cx + Rr * (ox + rr), cy + Rr * (oy + rr),
+                               fill="#CFC7AA", outline="#BDB496", width=1, tags=tg)
             phase = cfg["sky_phase"]
             if phase == "Авто":
                 a = self.moon_age()
-                phase = (
-                    "Полная"
-                    if 0.4 <= a < 0.6
-                    else ("Растущая" if a < 0.5 else "Убывающая")
-                )
+                phase = "Полная" if 0.4 <= a < 0.6 else ("Растущая" if a < 0.5 else "Убывающая")
             if phase != "Полная":
                 sgn = -1 if phase == "Растущая" else 1
-                mx = cx + sgn * Rr * 0.55
-                cv.create_oval(
-                    mx - Rr * 0.98,
-                    cy - Rr * 0.98,
-                    mx + Rr * 0.98,
-                    cy + Rr * 0.98,
-                    fill=KEY,
-                    outline="",
-                    tags=tg,
-                )
+                mx = cx + sgn * Rr * 0.58
+                cv.create_oval(mx - Rr * 0.99, cy - Rr * 0.99, mx + Rr * 0.99, cy + Rr * 0.99,
+                               fill=KEY, outline="", tags=tg)
+            # Несколько звёздочек рядом с луной
             rnd = random.Random(3)
-            for _ in range(5):
+            for _ in range(6):
                 a = rnd.uniform(0, 6.283)
-                dd = Rr * rnd.uniform(2.1, 2.8)
-                cv.create_text(
-                    cx + math.cos(a) * dd,
-                    cy + math.sin(a) * dd,
-                    text="✦",
-                    fill="#FFFFFF",
-                    font=("Segoe UI Symbol", rnd.choice((8, 10, 12))),
-                    tags=tg,
-                )
+                dd = Rr * rnd.uniform(1.85, 2.65)
+                sx, sy = cx + math.cos(a) * dd, cy + math.sin(a) * dd
+                sr = rnd.uniform(2.5, 4.5)
+                cv.create_polygon(sx, sy - sr, sx + sr * 0.3, sy - sr * 0.3,
+                                  sx + sr, sy, sx + sr * 0.3, sy + sr * 0.3,
+                                  sx, sy + sr, sx - sr * 0.3, sy + sr * 0.3,
+                                  sx - sr, sy, sx - sr * 0.3, sy - sr * 0.3,
+                                  fill="#FFF8DC", outline="", tags=tg)
         else:
-            Rr = S * 0.42
-            for k, col in ((2.2, "#FFE9A8"), (1.8, "#FFD97A"), (1.5, "#FFC94D")):
-                cv.create_oval(
-                    cx - Rr * k,
-                    cy - Rr * k,
-                    cx + Rr * k,
-                    cy + Rr * k,
-                    fill="",
-                    outline=col,
-                    width=2,
-                    tags=tg,
-                )
-            for _ in range(16):
-                self.sky["rays"].append(
-                    cv.create_polygon(0, 0, 1, 0, 1, 1, fill="#FFC107", outline="", tags=tg)
-                )
-            for k, col in (
-                (1.0, "#FFB300"),
-                (0.82, "#FFC107"),
-                (0.62, "#FFD54F"),
-                (0.4, "#FFE082"),
-            ):
-                cv.create_oval(
-                    cx - Rr * k,
-                    cy - Rr * k,
-                    cx + Rr * k,
-                    cy + Rr * k,
-                    fill=col,
-                    outline="",
-                    tags=tg,
-                )
+            Rr = S * 0.44
+            # Солнечная корона и свечение
+            for k, col in ((2.45, "#FF8F00"), (2.0, "#FFA000"), (1.62, "#FFB300"), (1.32, "#FFCA28")):
+                o = cv.create_oval(cx - Rr * k, cy - Rr * k, cx + Rr * k, cy + Rr * k,
+                                   fill=col, outline="", stipple="gray25", tags=tg)
+                self.sky["corona"].append((o, Rr * k))
+            # 20 мягких заострённых лучей
+            for _ in range(20):
+                self.sky["rays"].append(cv.create_polygon(0, 0, 1, 0, 1, 1, fill="#FFC107",
+                                                          outline="", tags=tg))
+            # Многослойный солнечный диск от золотисто-оранжевого края до бело-золотого центра
+            for k, col in ((1.0, "#FF9800"), (0.90, "#FFB300"), (0.76, "#FFCA28"),
+                           (0.58, "#FFE082"), (0.36, "#FFF8E1")):
+                cv.create_oval(cx - Rr * k, cy - Rr * k, cx + Rr * k, cy + Rr * k,
+                               fill=col, outline="", tags=tg)
             self.update_sky(self.now, True)
 
     def update_sky(self, now, force=False):
         sk = self.sky
-        if not sk["rays"] or (self.frame % 4 and not force):
+        if not sk["rays"] or (self.frame % 3 and not force):
             return
         cv = self.cv
         cx, cy, S = sk["cx"], sk["cy"], sk["S"]
-        r0 = S * 0.42 * 1.12
+        r0 = S * 0.44 * 1.05
+        n_rays = len(sk["rays"])
         for i, rid in enumerate(sk["rays"]):
-            a = now * 0.2 + i * 2 * math.pi / 16
-            ln = (
-                S
-                * (0.98 if i % 2 == 0 else 0.74)
-                * (0.94 + 0.06 * math.sin(now * 2 + i))
-            )
-            wd = 0.10
-            cv.coords(
-                rid,
-                cx + math.cos(a - wd) * r0,
-                cy + math.sin(a - wd) * r0,
-                cx + math.cos(a) * ln,
-                cy + math.sin(a) * ln,
-                cx + math.cos(a + wd) * r0,
-                cy + math.sin(a + wd) * r0,
-            )
-            cv.itemconfigure(rid, fill="#FFC107" if i % 2 == 0 else "#FFD54F")
+            a = now * 0.18 + i * 2 * math.pi / n_rays
+            is_long = (i % 2 == 0)
+            pulse = 0.92 + 0.08 * math.sin(now * 2.2 + i * 0.9)
+            ln = S * (1.06 if is_long else 0.78) * pulse
+            wd = 0.085 if is_long else 0.065
+            cv.coords(rid,
+                      cx + math.cos(a - wd) * r0, cy + math.sin(a - wd) * r0,
+                      cx + math.cos(a) * ln, cy + math.sin(a) * ln,
+                      cx + math.cos(a + wd) * r0, cy + math.sin(a + wd) * r0)
+            cv.itemconfigure(rid, fill="#FFB300" if is_long else "#FFD54F")
 
-    def build_neon(self):
-        cv, w = self.cv, self.cfg["neon_width"]
-        self.neon = [
-            cv.create_rectangle(
-                0, 0, 1, 1, outline="#550055", width=w * 3 + 2, state="hidden", tags="e_neon"
-            ),
-            cv.create_rectangle(
-                0, 0, 1, 1, outline="#AA00AA", width=w * 2, state="hidden", tags="e_neon"
-            ),
-            cv.create_rectangle(
-                0, 0, 1, 1, outline="#FFFFFF", width=w, state="hidden", tags="e_neon"
-            ),
-        ]
-        self.neon_vis, self.neon_rect, self.neon_col = False, None, None
+    # ---- большие объёмные облака
+    def build_clouds(self):
+        cv, cfg = self.cv, self.cfg
+        body, mid_col, shade = {
+            "Белые": ("#FFFFFF", "#EBF2FC", "#C9D8EE"),
+            "Серые (пасмурно)": ("#C4CCD8", "#A3AEBE", "#7C8798"),
+            "Закат (розовые)": ("#FFE0D4", "#FFC1B8", "#E396AB"),
+        }.get(cfg["clouds_tint"], ("#FFFFFF", "#EBF2FC", "#C9D8EE"))
+        rnd = random.Random(31)
+        self.clouds = []
+        hmax = max(self.H * 0.12, self.H * cfg["clouds_height"] / 100.0)
+        count = int(cfg["clouds_count"])
+        for i in range(count):
+            # Большие, пушистые облака разного плана (дальние чуть меньше, передние огромные)
+            depth = 0.75 + 0.55 * (i / max(1, count - 1))
+            w = rnd.uniform(340, 640) * depth
+            h = w * rnd.uniform(0.30, 0.36)
+            x = rnd.uniform(-w * 0.6, self.W)
+            y = rnd.uniform(self.H * 0.015, hmax)
+            tg = ("e_clouds", "cl%d" % i)
+            # Нижняя глубокая тень
+            cv.create_oval(x + w * 0.05, y + h * 0.44, x + w * 0.95, y + h * 1.06,
+                           fill=shade, outline="", tags=tg)
+            # Средний объёмный слой
+            for (bx, by, bw, bh) in ((0.02, 0.36, 0.38, 0.62), (0.22, 0.14, 0.44, 0.80),
+                                     (0.50, 0.22, 0.42, 0.72), (0.66, 0.38, 0.32, 0.56)):
+                cv.create_oval(x + w * bx, y + h * by, x + w * (bx + bw), y + h * (by + bh),
+                               fill=mid_col, outline="", tags=tg)
+            # Верхние освещённые купола облака
+            for (bx, by, bw, bh) in ((0.06, 0.32, 0.34, 0.54), (0.18, 0.04, 0.36, 0.72),
+                                     (0.38, 0.0, 0.38, 0.78), (0.58, 0.16, 0.32, 0.60),
+                                     (0.72, 0.34, 0.24, 0.48)):
+                cv.create_oval(x + w * bx, y + h * by, x + w * (bx + bw), y + h * (by + bh),
+                               fill=body, outline="", tags=tg)
+            # Выравнивание нижней кромки
+            cv.create_oval(x + w * 0.06, y + h * 0.56, x + w * 0.94, y + h * 0.94,
+                           fill=body, outline="", tags=tg)
+            self.clouds.append({"tag": "cl%d" % i, "x": x, "w": w, "v": rnd.uniform(0.22, 0.55) * depth})
 
-    def neon_color(self, now):
-        cfg = self.cfg
-        m = cfg["neon_mode"]
-        t = now * cfg["neon_speed"]
-        if m == "Радуга":
-            return hsv_hex(t * 0.15, 0.9, 1.0)
-        if m == "Фиолетовый":
-            return mix("#9B5DE5", "#F15BB5", 0.5 + 0.5 * math.sin(t))
-        return mix("#00BBF9", "#00F5D4", 0.5 + 0.5 * math.sin(t))
+    def update_clouds(self, now):
+        sp = self.cfg["clouds_speed"] * 1.4 * self.frame_scale
+        for c in self.clouds:
+            dx = c["v"] * sp
+            self.cv.move(c["tag"], dx, 0)
+            c["x"] += dx
+            if c["x"] > self.W + 40:
+                back = self.W + c["w"] + 80
+                self.cv.move(c["tag"], -back, 0)
+                c["x"] -= back
 
-    def update_neon(self, now):
-        cv = self.cv
-        fg = self.get_fg()
-        rect = None
-        for (hw, l, t, r, b, mx) in self.wins:
-            if hw == fg and not mx:
-                rect = (
-                    int(l - self.vx),
-                    int(t - self.vy),
-                    int(r - self.vx),
-                    int(b - self.vy),
-                )
-                break
-        if rect is None:
-            if self.neon_vis:
-                for i in self.neon:
-                    cv.itemconfigure(i, state="hidden")
-                self.neon_vis = False
-            return
-        if rect != self.neon_rect:
-            for i in self.neon:
-                cv.coords(i, *rect)
-            self.neon_rect = rect
-        col = self.neon_color(now)
-        if col != self.neon_col or not self.neon_vis:
-            self.neon_col = col
-            for i, c in zip(
-                self.neon, (blend(col, 0.35), blend(col, 0.7), mix(col, "#FFFFFF", 0.7))
-            ):
-                cv.itemconfigure(i, outline=c, state="normal")
-            self.neon_vis = True
+    # ---- птицы и бабочки
+    def birds_kind(self):
+        m = self.cfg["birds_mode"]
+        if m == "Птицы":
+            return "bird"
+        if m == "Бабочки":
+            return "butterfly"
+        return "butterfly" if self.season == "summer" else "bird"
 
+    def build_birds(self):
+        cv, cfg = self.cv, self.cfg
+        self.bkind = self.birds_kind()
+        n = int(cfg["birds_count"])
+        W, H = self.W, self.H
+        self.birds = []
+        if self.bkind == "bird":
+            col = "#E8EEF8" if self.season == "winter" else "#1F2437"
+            for f in range((n + 6) // 7):
+                d = random.choice((1, -1))
+                fl = {"d": d, "x": random.uniform(-W * 0.3, W * 1.1), "y": random.uniform(0.08, 0.5) * H,
+                      "v": random.uniform(1.8, 2.8), "birds": []}
+                for k in range(min(7, n - f * 7)):
+                    side = 1 if k % 2 else -1
+                    rank = (k + 1) // 2
+                    i = cv.create_line(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, fill=col, width=2, smooth=True,
+                                       tags="e_birds")
+                    fl["birds"].append((i, (-d * rank * 24, side * rank * 13), random.uniform(0, 6.3)))
+                self.birds.append(fl)
+        else:
+            for k in range(n):
+                col = random.choice(CONFETTI_COL)
+                wl = cv.create_polygon(0, 0, 1, 1, 2, 2, fill=col, outline=blend(col, 0.6), smooth=True,
+                                       tags="e_birds")
+                wr = cv.create_polygon(0, 0, 1, 1, 2, 2, fill=col, outline=blend(col, 0.6), smooth=True,
+                                       tags="e_birds")
+                self.birds.append({"x": random.uniform(0, W), "y": random.uniform(0.1, 0.9) * H,
+                                   "hd": random.uniform(0, 6.283), "ph": random.uniform(0, 6.3),
+                                   "ids": (wl, wr)})
+
+    def update_birds(self, now):
+        cv, cfg = self.cv, self.cfg
+        s = cfg["birds_size"] / 100.0
+        sp = cfg["birds_speed"] * self.frame_scale
+        W, H = self.W, self.H
+        if self.bkind == "bird":
+            for fl in self.birds:
+                fl["x"] += fl["d"] * fl["v"] * sp * 1.6
+                if (fl["d"] > 0 and fl["x"] > W + 200) or (fl["d"] < 0 and fl["x"] < -200):
+                    fl["d"] = random.choice((1, -1))
+                    fl["x"] = -150 if fl["d"] > 0 else W + 150
+                    fl["y"] = random.uniform(0.08, 0.5) * H
+                for (i, off, ph) in fl["birds"]:
+                    bx = fl["x"] + off[0] * s
+                    by = fl["y"] + off[1] * s + math.sin(now * 1.3 + ph) * 3
+                    f = math.sin(now * 9 + ph) * 6 * s
+                    cv.coords(i, bx - 10 * s, by - f, bx - 4 * s, by - f * 0.3 - 3 * s, bx, by,
+                              bx + 4 * s, by - f * 0.3 - 3 * s, bx + 10 * s, by - f)
+        else:
+            for b in self.birds:
+                b["hd"] += random.uniform(-0.25, 0.25)
+                b["x"] += math.cos(b["hd"]) * sp * 1.3
+                b["y"] += math.sin(b["hd"]) * sp * 0.9 + math.sin(now * 3 + b["ph"]) * 0.4
+                if b["x"] > W + 20:
+                    b["x"] = -20
+                elif b["x"] < -20:
+                    b["x"] = W + 20
+                if b["y"] > H - 40:
+                    b["hd"] = -abs(b["hd"])
+                    b["y"] = H - 40
+                elif b["y"] < 20:
+                    b["y"] = 20
+                    b["hd"] = abs(b["hd"])
+                wf = 0.25 + 0.75 * abs(math.cos(now * 10 + b["ph"]))
+                x, y = b["x"], b["y"]
+                cv.coords(b["ids"][0], x, y, x - 9 * s * wf, y - 8 * s, x - 13 * s * wf, y - 1 * s,
+                          x - 9 * s * wf, y + 6 * s, x, y + 2 * s)
+                cv.coords(b["ids"][1], x, y, x + 9 * s * wf, y - 8 * s, x + 13 * s * wf, y - 1 * s,
+                          x + 9 * s * wf, y + 6 * s, x, y + 2 * s)
+
+    # ---- новогодняя ёлка
     def build_tree(self):
         cv, cfg = self.cv, self.cfg
-        L, _T, R, B = self.widget_mon()
+        L, T, R, B = self.widget_mon()
         s = cfg["tree_size"] / 100.0
         Tw, Th = 170 * s, 250 * s
         by = B - cfg["tree_lift"]
@@ -3527,20 +2728,10 @@ class Engine:
             cx = (L + R) / 2
         tg = "e_tree"
         rnd = random.Random(5)
-        cv.create_rectangle(
-            cx - 9 * s,
-            by - Th * 0.14,
-            cx + 9 * s,
-            by,
-            fill="#6D4C41",
-            outline="#4E342E",
-            tags=tg,
-        )
-        tiers = (
-            (0.50, 0.10, 0.50, "#1B8A3A"),
-            (0.74, 0.34, 0.40, "#1F9D44"),
-            (0.97, 0.60, 0.29, "#28B04F"),
-        )
+        cv.create_rectangle(cx - 9 * s, by - Th * 0.14, cx + 9 * s, by, fill="#6D4C41",
+                            outline="#4E342E", tags=tg)
+        tiers = ((0.50, 0.10, 0.50, "#1B8A3A"), (0.74, 0.34, 0.40, "#1F9D44"),
+                 (0.97, 0.60, 0.29, "#28B04F"))
         pal = ["#FF3B30", "#FFD60A", "#34C759", "#0A84FF", "#FF6FD8", "#FF9F1C"]
         self.tree_lights = []
         for apex, base, hw, col in tiers:
@@ -3549,43 +2740,21 @@ class Engine:
             pts = [cx, ya, cx + half, yb]
             n = 6
             for q in range(n):
-                pts += [
-                    cx + half - 2 * half * (q + 0.5) / n,
-                    yb - 8 * s,
-                    cx + half - 2 * half * (q + 1) / n,
-                    yb,
-                ]
-            cv.create_polygon(
-                *pts, fill=col, outline=blend(col, 0.55), width=2, tags=tg
-            )
+                pts += [cx + half - 2 * half * (q + 0.5) / n, yb - 8 * s,
+                        cx + half - 2 * half * (q + 1) / n, yb]
+            cv.create_polygon(*pts, fill=col, outline=blend(col, 0.55), width=2, tags=tg)
             hh = yb - ya
-            cv.create_polygon(
-                cx,
-                ya,
-                cx + half * 0.34,
-                ya + hh * 0.30,
-                cx + half * 0.12,
-                ya + hh * 0.26,
-                cx,
-                ya + hh * 0.36,
-                cx - half * 0.12,
-                ya + hh * 0.26,
-                cx - half * 0.34,
-                ya + hh * 0.30,
-                fill="#F4F9FF",
-                outline="",
-                tags=tg,
-            )
+            cv.create_polygon(cx, ya, cx + half * 0.34, ya + hh * 0.30, cx + half * 0.12, ya + hh * 0.26,
+                              cx, ya + hh * 0.36, cx - half * 0.12, ya + hh * 0.26,
+                              cx - half * 0.34, ya + hh * 0.30, fill="#F4F9FF", outline="", tags=tg)
             p0 = (cx - half * 0.72, yb - hh * 0.30)
             p1 = (cx, yb - hh * 0.04)
             p2 = (cx + half * 0.72, yb - hh * 0.30)
             sw = []
             for q in range(13):
                 t = q / 12.0
-                sw += [
-                    (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
-                    (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1],
-                ]
+                sw += [(1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
+                       (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]]
             cv.create_line(*sw, fill="#FFD54F", width=2, smooth=True, tags=tg)
             for q in range(5):
                 t = 0.12 + q * 0.19
@@ -3593,110 +2762,46 @@ class Engine:
                 bby = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]
                 c2 = rnd.choice(pal)
                 rr = 4.8 * s
-                cv.create_oval(
-                    bx - rr,
-                    bby - rr + 3,
-                    bx + rr,
-                    bby + rr + 3,
-                    fill=c2,
-                    outline=blend(c2, 0.55),
-                    tags=tg,
-                )
-                cv.create_oval(
-                    bx - rr * 0.5,
-                    bby - rr * 0.6 + 3,
-                    bx - rr * 0.1,
-                    bby - rr * 0.1 + 3,
-                    fill="#FFFFFF",
-                    outline="",
-                    tags=tg,
-                )
+                cv.create_oval(bx - rr, bby - rr + 3, bx + rr, bby + rr + 3, fill=c2,
+                               outline=blend(c2, 0.55), tags=tg)
+                cv.create_oval(bx - rr * 0.5, bby - rr * 0.6 + 3, bx - rr * 0.1, bby - rr * 0.1 + 3,
+                               fill="#FFFFFF", outline="", tags=tg)
             for q in range(4):
                 t = 0.2 + q * 0.2
                 lx = (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0]
                 ly = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1] - hh * 0.12
                 c3 = rnd.choice(pal)
                 rr = 3.2 * s
-                o = cv.create_oval(
-                    lx - rr, ly - rr, lx + rr, ly + rr, fill=c3, outline="", tags=tg
-                )
+                o = cv.create_oval(lx - rr, ly - rr, lx + rr, ly + rr, fill=c3, outline="", tags=tg)
                 self.tree_lights.append((o, c3, rnd.uniform(0, 6.3)))
         pts = []
         for q in range(10):
             ang = -math.pi / 2 + q * math.pi / 5
             rad = 14 * s if q % 2 == 0 else 6 * s
-            pts += [
-                cx + math.cos(ang) * rad,
-                by - Th * 1.0 + math.sin(ang) * rad + 4 * s,
-            ]
+            pts += [cx + math.cos(ang) * rad, by - Th * 1.0 + math.sin(ang) * rad + 4 * s]
         for k in (30, 22):
-            cv.create_oval(
-                cx - k * s,
-                by - Th + 4 * s - k * s,
-                cx + k * s,
-                by - Th + 4 * s + k * s,
-                fill="",
-                outline="#FFE082",
-                tags=tg,
-            )
+            cv.create_oval(cx - k * s, by - Th + 4 * s - k * s, cx + k * s, by - Th + 4 * s + k * s,
+                           fill="", outline="#FFE082", tags=tg)
         cv.create_polygon(*pts, fill="#FFD54F", outline="#FFF3B0", tags=tg)
-        for gx, gw, gh, col in (
-            (-0.95, 36, 26, "#E53935"),
-            (0.4, 30, 22, "#1E88E5"),
-            (0.85, 24, 18, "#FDD835"),
-        ):
+        for gx, gw, gh, col in ((-0.95, 36, 26, "#E53935"), (0.4, 30, 22, "#1E88E5"), (0.85, 24, 18, "#FDD835")):
             x0 = cx + gx * Tw * 0.5
-            cv.create_rectangle(
-                x0,
-                by - gh * s,
-                x0 + gw * s,
-                by,
-                fill=col,
-                outline=blend(col, 0.6),
-                tags=tg,
-            )
-            cv.create_rectangle(
-                x0 + gw * s * 0.42,
-                by - gh * s,
-                x0 + gw * s * 0.58,
-                by,
-                fill="#FFFFFF",
-                outline="",
-                tags=tg,
-            )
-            cv.create_oval(
-                x0 + gw * s * 0.2,
-                by - gh * s - 7 * s,
-                x0 + gw * s * 0.5,
-                by - gh * s,
-                fill="#FFFFFF",
-                outline="",
-                tags=tg,
-            )
-            cv.create_oval(
-                x0 + gw * s * 0.5,
-                by - gh * s - 7 * s,
-                x0 + gw * s * 0.8,
-                by - gh * s,
-                fill="#FFFFFF",
-                outline="",
-                tags=tg,
-            )
+            cv.create_rectangle(x0, by - gh * s, x0 + gw * s, by, fill=col, outline=blend(col, 0.6), tags=tg)
+            cv.create_rectangle(x0 + gw * s * 0.42, by - gh * s, x0 + gw * s * 0.58, by, fill="#FFFFFF",
+                                outline="", tags=tg)
+            cv.create_oval(x0 + gw * s * 0.2, by - gh * s - 7 * s, x0 + gw * s * 0.5, by - gh * s,
+                           fill="#FFFFFF", outline="", tags=tg)
+            cv.create_oval(x0 + gw * s * 0.5, by - gh * s - 7 * s, x0 + gw * s * 0.8, by - gh * s,
+                           fill="#FFFFFF", outline="", tags=tg)
 
     def update_tree(self, now):
         if self.frame % 6:
             return
         for o, col, ph in self.tree_lights:
             f = 0.5 + 0.5 * math.sin(now * 3 + ph)
-            self.cv.itemconfigure(
-                o,
-                fill=mix(col, "#FFFFFF", 0.45 * f)
-                if f > 0.3
-                else blend(col, 0.45),
-            )
+            self.cv.itemconfigure(o, fill=mix(col, "#FFFFFF", 0.45 * f) if f > 0.3 else blend(col, 0.45))
 
+    # ---- слои и производительность
     def below_mask(self, item):
-        """Новый элемент рабочего стола кладём под «маску» окон."""
         if self.mask_items and self.cfg["desktop_only"]:
             self.cv.tag_lower(item, "mask")
 
@@ -3706,43 +2811,21 @@ class Engine:
         self.next_poll = 0.0
 
     def adapt_perf(self, now):
-        """Авто-режим: если не успеваем — уменьшаем количество частиц, потом возвращаем."""
         cfg = self.cfg
-        if cfg["perf_mode"] != "Авто" or now < self.perf_cool:
+        if cfg["perf_mode"] == "Экономия" or now < self.perf_cool:
             return
-        budget = 1000.0 / max(10, cfg["fps"]) * 0.5
-        if self.ms > budget and self.perf_scale > 0.3:
-            self.perf_scale = max(0.3, self.perf_scale * 0.8)
+        target = 0.65 if cfg["perf_mode"] == "Авто" else 0.80
+        budget = 1000.0 / max(15, cfg["fps"]) * target
+        if self.ms > budget and self.perf_scale > 0.45:
+            self.perf_scale = max(0.45, self.perf_scale * 0.82)
             self.dirty_particles = True
-            self.perf_cool = now + 6
-        elif self.ms < budget * 0.35 and self.perf_scale < 1.0:
+            self.perf_cool = now + 1.0
+        elif self.ms < budget * 0.45 and self.perf_scale < 1.0:
             self.perf_scale = min(1.0, self.perf_scale * 1.15)
             self.dirty_particles = True
-            self.perf_cool = now + 6
-
-    def lead_offset(self, hw, l, t, now, lead):
-        """Упреждение: рисуем чуть впереди движущегося окна, чтобы гирлянда не отставала."""
-        s = self.vel.get(hw)
-        if s is None:
-            self.vel[hw] = [0.0, 0.0, l, t, now]
-            return 0.0, 0.0
-        if l != s[2] or t != s[3]:
-            dt = now - s[4]
-            if dt > 0.002:
-                s[0] = s[0] * 0.4 + (l - s[2]) / dt * 0.6
-                s[1] = s[1] * 0.4 + (t - s[3]) / dt * 0.6
-            s[2], s[3], s[4] = l, t, now
-        elif now - s[4] > 0.04:
-            s[0] = s[1] = 0.0
-        if lead <= 0 or abs(s[0]) + abs(s[1]) < 60:
-            return 0.0, 0.0
-        return (
-            max(-40.0, min(40.0, s[0] * lead)),
-            max(-40.0, min(40.0, s[1] * lead)),
-        )
+            self.perf_cool = now + 1.5
 
     def update_mask(self):
-        """Прозрачные «заплатки» поверх окон: всё нарисованное под ними на рабочем столе скрыто."""
         cv = self.cv
         if not self.cfg["desktop_only"]:
             if self.mask_items:
@@ -3752,9 +2835,7 @@ class Engine:
         rects = self.win_rects + self.tb_rects
         created = False
         while len(self.mask_items) < len(rects):
-            self.mask_items.append(
-                cv.create_rectangle(0, 0, 0, 0, fill=KEY, outline="", tags="mask")
-            )
+            self.mask_items.append(cv.create_rectangle(0, 0, 0, 0, fill=KEY, outline="", tags="mask"))
             self.mask_rects.append(None)
             created = True
         while len(self.mask_items) > len(rects):
@@ -3772,21 +2853,11 @@ class Engine:
         if len(self.chunks) >= 400:
             return
         col = col or random.choice(("#E53935", "#1E88E5", "#43A047", "#FDD835", "#8E24AA"))
-        i = self.cv.create_rectangle(
-            x - 6, y - 5, x + 6, y + 5, fill=col, outline=blend(col, 0.6), tags="flake"
-        )
+        i = self.cv.create_rectangle(x - 6, y - 5, x + 6, y + 5, fill=col, outline=blend(col, 0.6),
+                                     tags="flake")
         self.below_mask(i)
-        self.chunks.append({
-            "x": x,
-            "y": y,
-            "py": y,
-            "vx": random.uniform(-0.4, 0.4),
-            "vy": 1.0,
-            "r": 6,
-            "mat": "snow",
-            "id": i,
-            "gift": col,
-        })
+        self.chunks.append({"x": x, "y": y, "py": y, "vx": random.uniform(-0.4, 0.4), "vy": 1.0,
+                            "r": 6, "mat": "snow", "id": i, "gift": col})
 
     def add_gift(self, key, left, x, col):
         self.gifts.append({"key": key, "off": x - left, "col": col})
@@ -3807,10 +2878,7 @@ class Engine:
             if not pos:
                 continue
             x, top = pos
-            if (
-                abs(cx - x) <= 13 * s * 1.3
-                and top - self.snowman_height(sm["stage"]) - 6 <= cy <= top + 8
-            ):
+            if abs(cx - x) <= 13 * s * 1.3 and top - self.snowman_height(sm["stage"]) - 6 <= cy <= top + 8:
                 return sm
         return None
 
@@ -3824,7 +2892,6 @@ class Engine:
         return best
 
     def update_hold(self):
-        """Ctrl/Shift + курсор: катать снежный ком или переносить снеговика."""
         cfg, cv = self.cfg, self.cv
         if not cfg["roll_enabled"] or self.cur is None or not self.visible:
             if self.hold:
@@ -3848,11 +2915,8 @@ class Engine:
             pm = cfg["pile_max"]
             for key, d in self.surf_info.items():
                 for a, c in d["spans"]:
-                    if (
-                        a <= cx <= c
-                        and d["top"] - pm - 25 <= cy <= d["top"] + 15
-                        and self.pile_h(key, d["left"], cx) >= 1.5
-                    ):
+                    if a <= cx <= c and d["top"] - pm - 25 <= cy <= d["top"] + 15 \
+                            and self.pile_h(key, d["left"], cx) >= 1.5:
                         self.hold = {"t": "ball", "r": 3.0, "lx": cx, "ready": False}
                         return
             return
@@ -3876,10 +2940,8 @@ class Engine:
                 if p and hh >= 0.8 and dist > 0 and h["r"] < R0:
                     h["r"] = min(R0, h["r"] + dist * 0.05 * min(2.0, hh / 4 + 0.5))
                     arr = p["h"]
-                    for i in range(
-                        max(0, int((cx - h["r"] - 6 - d["left"]) // BIN)),
-                        min(len(arr) - 1, int((cx + h["r"] + 6 - d["left"]) // BIN)) + 1,
-                    ):
+                    for i in range(max(0, int((cx - h["r"] - 6 - d["left"]) // BIN)),
+                                   min(len(arr) - 1, int((cx + h["r"] + 6 - d["left"]) // BIN)) + 1):
                         arr[i] *= 0.82
                     self.pile_dirty = True
         if h["r"] >= R0 * 0.97:
@@ -3887,25 +2949,10 @@ class Engine:
         r = h["r"]
         by = (sb[1]["top"] - r) if (rolling and sb) else cy
         ol = "#5CC8FF" if h["ready"] else "#9DB7D8"
-        cv.create_oval(
-            cx - r,
-            by - r,
-            cx + r,
-            by + r,
-            fill="#FFFFFF",
-            outline=ol,
-            width=3 if h["ready"] else 1,
-            tags="ball",
-        )
-        cv.create_oval(
-            cx - r * 0.6,
-            by - r * 0.65,
-            cx - r * 0.2,
-            by - r * 0.3,
-            fill="#E6F0FF",
-            outline="",
-            tags="ball",
-        )
+        cv.create_oval(cx - r, by - r, cx + r, by + r, fill="#FFFFFF", outline=ol,
+                       width=3 if h["ready"] else 1, tags="ball")
+        cv.create_oval(cx - r * 0.6, by - r * 0.65, cx - r * 0.2, by - r * 0.3,
+                       fill="#E6F0FF", outline="", tags="ball")
         cv.tag_raise("ball")
 
     def drop_hold(self, cancel=False):
@@ -3926,36 +2973,19 @@ class Engine:
             return
         if not sb or not h["ready"]:
             for _ in range(5):
-                self.spawn_fx(
-                    cx,
-                    self.cur[1] if self.cur else 0,
-                    random.uniform(-1.5, 1.5),
-                    random.uniform(-2, 0),
-                    14,
-                    "#FFFFFF",
-                    2.0,
-                    g=0.15,
-                )
+                self.spawn_fx(cx, (self.cur[1] if self.cur else 0), random.uniform(-1.5, 1.5),
+                              random.uniform(-2, 0), 14, "#FFFFFF", 2.0, g=0.15)
             return
         key, d = sb
         near = None
         for sm in self.snowmen:
-            if (
-                sm["key"] == key
-                and sm["stage"] < 3
-                and abs(d["left"] + sm["off"] - cx) < 30
-            ):
+            if sm["key"] == key and sm["stage"] < 3 and abs(d["left"] + sm["off"] - cx) < 30:
                 near = sm
                 break
         if near:
             near["stage"] += 1
         else:
-            self.snowmen.append({
-                "key": key,
-                "off": cx - d["left"],
-                "stage": 1,
-                "t0": self.now,
-            })
+            self.snowmen.append({"key": key, "off": cx - d["left"], "stage": 1, "t0": self.now})
         while len(self.snowmen) > int(cfg["snowman_max"]):
             self.snowmen.pop(0)
         self.dirty_snowmen = True
@@ -3963,31 +2993,15 @@ class Engine:
     def draw_gift(self, x, y, col, wt):
         cv, t = self.cv, ("gift", wt)
         w, h = 14, 11
-        cv.create_rectangle(
-            x - w / 2, y - h, x + w / 2, y, fill=col, outline=blend(col, 0.6), tags=t
-        )
-        cv.create_rectangle(
-            x - 1.5, y - h, x + 1.5, y, fill="#FFE082", outline="", tags=t
-        )
-        cv.create_rectangle(
-            x - w / 2,
-            y - h / 2 - 1.5,
-            x + w / 2,
-            y - h / 2 + 1.5,
-            fill="#FFE082",
-            outline="",
-            tags=t,
-        )
+        cv.create_rectangle(x - w / 2, y - h, x + w / 2, y, fill=col, outline=blend(col, 0.6), tags=t)
+        cv.create_rectangle(x - 1.5, y - h, x + 1.5, y, fill="#FFE082", outline="", tags=t)
+        cv.create_rectangle(x - w / 2, y - h / 2 - 1.5, x + w / 2, y - h / 2 + 1.5,
+                            fill="#FFE082", outline="", tags=t)
         cv.create_oval(x - 4.5, y - h - 4, x, y - h, fill="#FFE082", outline="", tags=t)
-        cv.create_oval(
-            x, y - h - 4, x + 4.5, y - h, fill="#FFE082", outline="", tags=t
-        )
+        cv.create_oval(x, y - h - 4, x + 4.5, y - h, fill="#FFE082", outline="", tags=t)
 
     def widget_mon(self):
-        """Рабочая область выбранного монитора (координаты холста): (L, T, R, B)."""
-        ms = [m["work"] for m in self.mons] or [
-            (self.vx, self.vy, self.vx + self.W, self.vy + self.H)
-        ]
+        ms = [m["work"] for m in self.mons] or [(self.vx, self.vy, self.vx + self.W, self.vy + self.H)]
         mode = self.cfg["widget_monitor"]
         if mode == "Левый":
             w = min(ms, key=lambda r: r[0])
@@ -4005,235 +3019,7 @@ class Engine:
         jd = time.time() / 86400.0 + 2440587.5
         return ((jd - 2451550.1) / 29.530588853) % 1.0
 
-    def build_clouds(self):
-        cv, cfg = self.cv, self.cfg
-        body, shade = {
-            "Белые": ("#F7FAFF", "#D5E0F2"),
-            "Серые (пасмурно)": ("#B9C0CC", "#8C95A5"),
-            "Закат (розовые)": ("#FFD6C9", "#E8A9B8"),
-        }.get(cfg["clouds_tint"], ("#F7FAFF", "#D5E0F2"))
-        rnd = random.Random(21)
-        self.clouds = []
-        hmax = max(self.H * 0.08, self.H * cfg["clouds_height"] / 100.0)
-        for i in range(int(cfg["clouds_count"])):
-            w = rnd.uniform(220, 440)
-            h = w * 0.3
-            x = rnd.uniform(-w, max(10, self.W))
-            y = rnd.uniform(self.H * 0.02, max(self.H * 0.03, hmax))
-            tg = ("e_clouds", "cl%d" % i)
-            cv.create_oval(
-                x + w * 0.04,
-                y + h * 0.38,
-                x + w * 0.96,
-                y + h * 1.08,
-                fill=shade,
-                outline="",
-                tags=tg,
-            )
-            for (bx, by, bw, bh) in (
-                (0.0, 0.32, 0.42, 0.62),
-                (0.18, 0.0, 0.42, 0.85),
-                (0.42, 0.08, 0.46, 0.80),
-                (0.62, 0.28, 0.38, 0.62),
-            ):
-                cv.create_oval(
-                    x + w * bx,
-                    y + h * by,
-                    x + w * (bx + bw),
-                    y + h * (by + bh) + h * 0.1,
-                    fill=body,
-                    outline="",
-                    tags=tg,
-                )
-            cv.create_oval(
-                x + w * 0.05,
-                y + h * 0.55,
-                x + w * 0.95,
-                y + h * 0.98,
-                fill=body,
-                outline="",
-                tags=tg,
-            )
-            self.clouds.append({
-                "tag": "cl%d" % i,
-                "x": x,
-                "w": w,
-                "v": rnd.uniform(0.25, 0.7),
-            })
-
-    def update_clouds(self, now):
-        if self.frame % 2:
-            return
-        sp = self.cfg["clouds_speed"] * 2.0
-        for c in self.clouds:
-            dx = c["v"] * sp
-            self.cv.move(c["tag"], dx, 0)
-            c["x"] += dx
-            if c["x"] > self.W + 30:
-                back = self.W + c["w"] + 60
-                self.cv.move(c["tag"], -back, 0)
-                c["x"] -= back
-
-    def birds_kind(self):
-        m = self.cfg["birds_mode"]
-        if m == "Птицы":
-            return "bird"
-        if m == "Бабочки":
-            return "butterfly"
-        return "butterfly" if self.season == "summer" else "bird"
-
-    def build_birds(self):
-        cv, cfg = self.cv, self.cfg
-        self.bkind = self.birds_kind()
-        n = int(cfg["birds_count"])
-        W, H = self.W, self.H
-        self.birds = []
-        if self.bkind == "bird":
-            col = "#E8EEF8" if self.season == "winter" else "#1F2437"
-            for f in range((n + 6) // 7):
-                d = random.choice((1, -1))
-                fl = {
-                    "d": d,
-                    "x": random.uniform(-W * 0.3, W * 1.1),
-                    "y": random.uniform(0.08, 0.5) * H,
-                    "v": random.uniform(1.6, 2.6),
-                    "birds": [],
-                }
-                for k in range(min(7, n - f * 7)):
-                    side = 1 if k % 2 else -1
-                    rank = (k + 1) // 2
-                    i = cv.create_line(
-                        0,
-                        0,
-                        1,
-                        1,
-                        2,
-                        2,
-                        3,
-                        3,
-                        4,
-                        4,
-                        fill=col,
-                        width=2,
-                        smooth=True,
-                        tags="e_birds",
-                    )
-                    fl["birds"].append((
-                        i,
-                        (-d * rank * 24, side * rank * 13),
-                        random.uniform(0, 6.3),
-                    ))
-                self.birds.append(fl)
-        else:
-            for _ in range(n):
-                col = random.choice(CONFETTI_COL)
-                wl = cv.create_polygon(
-                    0,
-                    0,
-                    1,
-                    1,
-                    2,
-                    2,
-                    fill=col,
-                    outline=blend(col, 0.6),
-                    smooth=True,
-                    tags="e_birds",
-                )
-                wr = cv.create_polygon(
-                    0,
-                    0,
-                    1,
-                    1,
-                    2,
-                    2,
-                    fill=col,
-                    outline=blend(col, 0.6),
-                    smooth=True,
-                    tags="e_birds",
-                )
-                self.birds.append({
-                    "x": random.uniform(0, max(10, W)),
-                    "y": random.uniform(0.1, 0.9) * H,
-                    "hd": random.uniform(0, 6.283),
-                    "ph": random.uniform(0, 6.3),
-                    "ids": (wl, wr),
-                })
-
-    def update_birds(self, now):
-        cv, cfg = self.cv, self.cfg
-        s = cfg["birds_size"] / 100.0
-        sp = cfg["birds_speed"]
-        W, H = self.W, self.H
-        if self.bkind == "bird":
-            for fl in self.birds:
-                fl["x"] += fl["d"] * fl["v"] * sp * 1.6
-                if (fl["d"] > 0 and fl["x"] > W + 200) or (
-                    fl["d"] < 0 and fl["x"] < -200
-                ):
-                    fl["d"] = random.choice((1, -1))
-                    fl["x"] = -150 if fl["d"] > 0 else W + 150
-                    fl["y"] = random.uniform(0.08, 0.5) * H
-                for (i, off, ph) in fl["birds"]:
-                    bx = fl["x"] + off[0] * s
-                    by = fl["y"] + off[1] * s + math.sin(now * 1.3 + ph) * 3
-                    f = math.sin(now * 9 + ph) * 6 * s
-                    cv.coords(
-                        i,
-                        bx - 10 * s,
-                        by - f,
-                        bx - 4 * s,
-                        by - f * 0.3 - 3 * s,
-                        bx,
-                        by,
-                        bx + 4 * s,
-                        by - f * 0.3 - 3 * s,
-                        bx + 10 * s,
-                        by - f,
-                    )
-        else:
-            for b in self.birds:
-                b["hd"] += random.uniform(-0.25, 0.25)
-                b["x"] += math.cos(b["hd"]) * sp * 1.3
-                b["y"] += math.sin(b["hd"]) * sp * 0.9 + math.sin(now * 3 + b["ph"]) * 0.4
-                if b["x"] > W + 20:
-                    b["x"] = -20
-                elif b["x"] < -20:
-                    b["x"] = W + 20
-                if b["y"] > H - 40:
-                    b["hd"] = -abs(b["hd"])
-                    b["y"] = H - 40
-                elif b["y"] < 20:
-                    b["y"] = 20
-                    b["hd"] = abs(b["hd"])
-                wf = 0.25 + 0.75 * abs(math.cos(now * 10 + b["ph"]))
-                x, y = b["x"], b["y"]
-                cv.coords(
-                    b["ids"][0],
-                    x,
-                    y,
-                    x - 9 * s * wf,
-                    y - 8 * s,
-                    x - 13 * s * wf,
-                    y - 1 * s,
-                    x - 9 * s * wf,
-                    y + 6 * s,
-                    x,
-                    y + 2 * s,
-                )
-                cv.coords(
-                    b["ids"][1],
-                    x,
-                    y,
-                    x + 9 * s * wf,
-                    y - 8 * s,
-                    x + 13 * s * wf,
-                    y - 1 * s,
-                    x + 9 * s * wf,
-                    y + 6 * s,
-                    x,
-                    y + 2 * s,
-                )
-
+    # ---- отсчёт до праздника
     def count_target(self):
         now = datetime.datetime.now()
         mode = self.cfg["count_target"]
@@ -4242,11 +3028,7 @@ class Engine:
         elif mode == "Рождество":
             m, d, name = 1, 7, "Рождества"
         else:
-            m, d, name = (
-                int(self.cfg["count_month"]),
-                int(self.cfg["count_day"]),
-                "праздника",
-            )
+            m, d, name = int(self.cfg["count_month"]), int(self.cfg["count_day"]), "праздника"
         y = now.year
         try:
             t = datetime.datetime(y, m, d)
@@ -4274,18 +3056,8 @@ class Engine:
         f2 = ("Segoe UI Semibold", max(10, int(34 * s)))
         self.cnt_ids = []
         for dx, dy, c in ((2, 2, "#000000"), (0, 0, cfg["count_color"])):
-            t1 = cv.create_text(
-                x + dx, y + dy, text="", anchor=anc, font=f1, fill=c, tags="e_count"
-            )
-            t2 = cv.create_text(
-                x + dx,
-                y + dy + 24 * s,
-                text="",
-                anchor=anc,
-                font=f2,
-                fill=c,
-                tags="e_count",
-            )
+            t1 = cv.create_text(x + dx, y + dy, text="", anchor=anc, font=f1, fill=c, tags="e_count")
+            t2 = cv.create_text(x + dx, y + dy + 24 * s, text="", anchor=anc, font=f2, fill=c, tags="e_count")
             self.cnt_ids.append((t1, t2))
         self.update_count(self.now, True)
 
@@ -4301,140 +3073,77 @@ class Engine:
             hh, rem = divmod(rem, 3600)
             mm, ss = divmod(rem, 60)
             a = "До %s осталось" % name
-            b = (
-                "%d д  %02d:%02d:%02d" % (days, hh, mm, ss)
-                if self.cfg["count_seconds"]
-                else "%d д  %02d:%02d" % (days, hh, mm)
-            )
+            b = ("%d д  %02d:%02d:%02d" % (days, hh, mm, ss)) if self.cfg["count_seconds"] \
+                else ("%d д  %02d:%02d" % (days, hh, mm))
         for t1, t2 in self.cnt_ids:
             self.cv.itemconfigure(t1, text=a)
             self.cv.itemconfigure(t2, text=b)
 
-    def build_strip(self):
-        cv, cfg = self.cv, self.cfg
-        w = cfg["strip_width"]
-        self.strip = []
-        mons = self.mons or [
-            {"work": (self.vx, self.vy, self.vx + self.W, self.vy + self.H)}
-        ]
-        for m in mons:
-            wl, wt, wr, wb = m["work"]
-            L, T, R, B = wl - self.vx, wt - self.vy, wr - self.vx, wb - self.vy
-            per = max(1.0, 2.0 * ((R - L) + (B - T)))
-            pos = 0.0
-            for (x1, y1, x2, y2) in (
-                (L, T + w / 2, R, T + w / 2),
-                (R - w / 2, T, R - w / 2, B),
-                (R, B - w / 2, L, B - w / 2),
-                (L + w / 2, B, L + w / 2, T),
-            ):
-                length = math.hypot(x2 - x1, y2 - y1)
-                n = max(1, int(length / 40))
-                for k in range(n):
-                    a, b = k / float(n), (k + 1) / float(n)
-                    i = cv.create_line(
-                        x1 + (x2 - x1) * a,
-                        y1 + (y2 - y1) * a,
-                        x1 + (x2 - x1) * b,
-                        y1 + (y2 - y1) * b,
-                        width=w,
-                        fill="#FF00FF",
-                        tags="e_strip",
-                    )
-                    self.strip.append((i, (pos + length * (a + b) / 2) / per))
-                pos += length
-
-    def update_strip(self, now):
-        if self.frame % 4:
-            return
-        cfg, cv = self.cfg, self.cv
-        t = now * cfg["strip_speed"] * 0.1
-        mode = cfg["strip_mode"]
-        season_col = {
-            "winter": "#BFE3FF",
-            "autumn": "#FF9F1C",
-            "spring": "#FFB3D9",
-            "summer": "#FFE066",
-        }[self.season]
-        for i, frac in self.strip:
-            ph = (frac * 3 - t) % 1.0
-            wave = 0.5 + 0.5 * math.sin(ph * 6.283)
-            if mode == "Радуга":
-                c = hsv_hex(ph, 0.9, 1.0)
-            elif mode == "Тёплый":
-                c = mix("#FF6B35", "#F72585", wave)
-            elif mode == "Холодный":
-                c = mix("#4CC9F0", "#7209B7", wave)
-            elif mode == "По сезону":
-                c = blend(season_col, 0.45 + 0.55 * wave)
-            else:
-                c = blend(cfg["strip_color"], 0.45 + 0.55 * wave)
-            cv.itemconfigure(i, fill=c)
-
+    # ---- Дед Мороз на санях с оленями (быстрый, плавный, без перестройки всего рисунка)
     def start_santa(self):
         if self.santa:
             return
         d = random.choice((1, -1))
         s = self.cfg["santa_size"] / 100.0
-        self.santa = {
-            "d": d,
-            "x": -300 * s if d > 0 else self.W + 300 * s,
-            "t": 0,
-            "gift": 0,
-        }
+        x0 = -320 * s if d > 0 else self.W + 320 * s
+        y0 = self.H * self.cfg["santa_height"] / 100.0 + 90 * s
+        self.santa = {"d": d, "x": x0, "y": y0, "base_y": y0, "t": 0.0, "gift": 0.0,
+                      "built": False, "legs": []}
+        self.santa_last_t = time.perf_counter()
 
     def build_santa(self):
         pass
 
     def update_santa(self, now):
-        cfg, cv = self.cfg, self.cv
+        cfg, cv = self.cv, self.cfg
         st = self.santa
         if st is None:
             if cfg["santa_enabled"]:
                 if self.next_santa is None:
-                    self.next_santa = now + 6
+                    self.next_santa = now + 5
                 elif now >= self.next_santa:
                     self.start_santa()
-                    self.next_santa = now + cfg["santa_every"] * 60 * random.uniform(
-                        0.7, 1.3
-                    )
+                    self.next_santa = now + cfg["santa_every"] * 60 * random.uniform(0.7, 1.3)
             return
+
+        t_perf = time.perf_counter()
+        dt = min(0.08, max(0.004, t_perf - self.santa_last_t))
+        self.santa_last_t = t_perf
+
         s = cfg["santa_size"] / 100.0
-        st["x"] += st["d"] * cfg["santa_speed"] * 1.6
-        st["t"] += 1
-        y = (
-            self.H * cfg["santa_height"] / 100.0
-            + 90 * s
-            + 16 * math.sin(st["t"] * 0.05)
-        )
-        cv.delete("e_santa")
-        self.draw_santa(st["x"], y, st["d"], s, st["t"])
-        if self.mask_items and cfg["desktop_only"]:
-            cv.tag_lower("e_santa", "mask")
-        if st["t"] % 2 == 0:
-            self.spawn_fx(
-                st["x"] - st["d"] * 70 * s,
-                y - 20 * s + random.uniform(-8, 8),
-                -st["d"] * random.uniform(0.3, 1.2),
-                random.uniform(-0.3, 0.8),
-                24,
-                random.choice(("#FFE066", "#FFFFFF", "#FFB347")),
-                2.0,
-                g=0.03,
-                drag=0.96,
-            )
+        if not st["built"]:
+            cv.delete("e_santa")
+            self.draw_santa_static(st["x"], st["y"], st["d"], s, st)
+            st["built"] = True
+            if self.mask_items and cfg["desktop_only"]:
+                cv.tag_lower("e_santa", "mask")
+
+        # Плавная скорость (px/сек), независимая от FPS
+        speed_px = (90.0 + cfg["santa_speed"] * 48.0) * dt
+        dx = st["d"] * speed_px
+        st["x"] += dx
+        st["t"] += dt * 7.5
+        new_y = (self.H * cfg["santa_height"] / 100.0 + 90 * s) + 14.0 * math.sin(st["t"] * 0.45)
+        dy = new_y - st["y"]
+        st["y"] = new_y
+
+        cv.move("e_santa", dx, dy)
+        self.animate_santa_legs(st["x"], st["y"], st["d"], s, st["t"], st["legs"])
+
+        if self.frame % 2 == 0:
+            self.spawn_fx(st["x"] - st["d"] * 65 * s, st["y"] - 16 * s + random.uniform(-8, 8),
+                          -st["d"] * random.uniform(0.4, 1.4), random.uniform(-0.3, 0.8), 22,
+                          random.choice(("#FFE066", "#FFFFFF", "#FFB347")), 2.1, g=0.03, drag=0.96)
         if cfg["santa_gifts"]:
-            st["gift"] += 1
-            if st["gift"] > 50:
-                st["gift"] = 0
-                self.spawn_gift(st["x"] - st["d"] * 10 * s, y + 10 * s)
-        if (st["d"] > 0 and st["x"] > self.W + 320 * s) or (
-            st["d"] < 0 and st["x"] < -320 * s
-        ):
+            st["gift"] += dt
+            if st["gift"] >= 0.85:
+                st["gift"] = 0.0
+                self.spawn_gift(st["x"] - st["d"] * 10 * s, st["y"] + 10 * s)
+        if (st["d"] > 0 and st["x"] > self.W + 360 * s) or (st["d"] < 0 and st["x"] < -360 * s):
             self.santa = None
             cv.delete("e_santa")
 
-    def draw_santa(self, x, y, d, s, t):
+    def draw_santa_static(self, x, y, d, s, st):
         cv = self.cv
         tg = "e_santa"
 
@@ -4445,94 +3154,44 @@ class Engine:
             return out
 
         def poly(pts, fill, outline="", smooth=False):
-            cv.create_polygon(
-                *P(pts), fill=fill, outline=outline, smooth=smooth, tags=tg
-            )
+            cv.create_polygon(*P(pts), fill=fill, outline=outline, smooth=smooth, tags=tg)
 
         def line(pts, fill, w=2, smooth=False):
-            cv.create_line(
-                *P(pts),
-                fill=fill,
-                width=max(1, int(w * s)),
-                smooth=smooth,
-                tags=tg,
-            )
+            cv.create_line(*P(pts), fill=fill, width=max(1, int(w * s)), smooth=smooth, tags=tg)
 
         def oval(cx, cy, rx, ry, fill, outline=""):
             xx, yy = x + cx * d * s, y + cy * s
-            cv.create_oval(
-                xx - rx * s,
-                yy - ry * s,
-                xx + rx * s,
-                yy + ry * s,
-                fill=fill,
-                outline=outline,
-                tags=tg,
-            )
+            cv.create_oval(xx - rx * s, yy - ry * s, xx + rx * s, yy + ry * s, fill=fill,
+                           outline=outline, tags=tg)
 
-        line([(34, -22), (63, -22)], "#8D6E63", 1)
+        line([(34, -22), (63, -22)], "#8D6E63", 1.5)
+        st["legs"] = []
         for n, dx in enumerate((78, 120, 162)):
-            ph = t * 0.35 + n * 1.3
-            bob = math.sin(ph) * 2
             for lx, sg in ((-8, 1), (-3, -1), (7, -1), (12, 1)):
-                sw = math.sin(ph + (0 if sg > 0 else 3.14)) * 7
-                line(
-                    [(dx + lx, -16 + bob), (dx + lx + sw, -2 - abs(sw) * 0.3)],
-                    "#6D4C41",
-                    2,
-                )
-            oval(dx, -20 + bob, 15, 8, "#8D5524", "#5D3A1A")
-            oval(dx - 14, -22 + bob, 3, 3, "#8D5524")
-            poly(
-                [
-                    (dx + 9, -24 + bob),
-                    (dx + 20, -38 + bob),
-                    (dx + 26, -34 + bob),
-                    (dx + 14, -18 + bob),
-                ],
-                "#8D5524",
-                smooth=True,
-            )
-            oval(dx + 25, -37 + bob, 7, 5, "#8D5524", "#5D3A1A")
-            line(
-                [(dx + 22, -41 + bob), (dx + 18, -52 + bob), (dx + 22, -58 + bob)],
-                "#D7CCC8",
-                2,
-            )
-            line([(dx + 19, -50 + bob), (dx + 13, -54 + bob)], "#D7CCC8", 2)
-            line(
-                [(dx + 26, -41 + bob), (dx + 27, -52 + bob), (dx + 31, -57 + bob)],
-                "#D7CCC8",
-                2,
-            )
+                lid = cv.create_line(0, 0, 1, 1, fill="#6D4C41", width=max(1, int(2 * s)),
+                                     capstyle="round", tags=tg)
+                st["legs"].append((lid, dx, lx, sg, n))
+            oval(dx, -20, 15, 8, "#8D5524", "#5D3A1A")
+            oval(dx - 14, -22, 3, 3, "#8D5524")
+            poly([(dx + 9, -24), (dx + 20, -38), (dx + 26, -34), (dx + 14, -18)],
+                 "#8D5524", smooth=True)
+            oval(dx + 25, -37, 7, 5, "#8D5524", "#5D3A1A")
+            line([(dx + 22, -41), (dx + 18, -52), (dx + 22, -58)], "#D7CCC8", 2)
+            line([(dx + 19, -50), (dx + 13, -54)], "#D7CCC8", 2)
+            line([(dx + 26, -41), (dx + 27, -52), (dx + 31, -57)], "#D7CCC8", 2)
             if n == 2:
-                oval(dx + 31, -36 + bob, 5.5, 5.5, "", "#FF9090")
-            oval(
-                dx + 31,
-                -36 + bob,
-                2.6,
-                2.6,
-                "#FF3030" if n == 2 else "#3E2723",
-            )
-            oval(dx + 27, -39 + bob, 1, 1, "#000000")
+                oval(dx + 31, -36, 5.5, 5.5, "", "#FF9090")
+            oval(dx + 31, -36, 2.6, 2.6, "#FF3030" if n == 2 else "#3E2723")
+            oval(dx + 27, -39, 1, 1, "#000000")
             if n < 2:
-                line([(dx + 8, -20), (dx + 27, -20)], "#8D6E63", 1)
-        line(
-            [(-38, 8), (-32, 12), (30, 12), (42, 9), (46, 1), (42, -3)],
-            "#C9A227",
-            3,
-            True,
-        )
+                line([(dx + 8, -20), (dx + 27, -20)], "#8D6E63", 1.5)
+        line([(-38, 8), (-32, 12), (30, 12), (42, 9), (46, 1), (42, -3)], "#C9A227", 3, True)
         line([(-20, 12), (-20, 4)], "#C9A227", 2)
         line([(10, 12), (10, 4)], "#C9A227", 2)
-        poly(
-            [(-34, 4), (-38, -12), (-30, -20), (28, -20), (38, -28), (42, -22), (32, 4)],
-            "#C62828",
-            "#7F0000",
-            True,
-        )
+        poly([(-34, 4), (-38, -12), (-30, -20), (28, -20), (38, -28), (42, -22), (32, 4)],
+             "#C62828", "#7F0000", True)
         line([(-34, -2), (32, -2)], "#FFD54F", 2)
-        oval(-24, -28, 15, 13, "#8D5524", "#5D4037")
+        oval(-24, -28, 15, 13, "#8D6E63", "#5D4037")
         poly([(-34, -38), (-26, -38), (-26, -30), (-34, -30)], "#43A047")
         poly([(-24, -42), (-16, -42), (-16, -34), (-24, -34)], "#1E88E5")
         poly([(-30, -45), (-23, -45), (-23, -39), (-30, -39)], "#FDD835")
@@ -4551,13 +3210,22 @@ class Engine:
         poly([(-5, -51), (3, -66), (12, -50)], "#D32F2F", "#8E0000", True)
         poly([(-6.5, -53), (13, -53), (13, -49), (-6.5, -49)], "#FFFFFF")
         oval(4, -67, 3.6, 3.6, "#FFFFFF")
+        self.animate_santa_legs(x, y, d, s, 0.0, st["legs"])
+
+    def animate_santa_legs(self, x, y, d, s, t, legs):
+        cv = self.cv
+        for lid, dx, lx, sg, n in legs:
+            ph = t * 1.3 + n * 1.1
+            sw = math.sin(ph + (0.0 if sg > 0 else math.pi)) * 7.5
+            x0 = x + (dx + lx) * d * s
+            y0 = y - 16 * s
+            x1 = x + (dx + lx + sw) * d * s
+            y1 = y + (-2 - abs(sw) * 0.3) * s
+            cv.coords(lid, x0, y0, x1, y1)
 
 
 # ---------------------------------------------------------------- Оверлей в своём потоке
 class Overlay(threading.Thread):
-    """Прозрачное окно с эффектами живёт в отдельном потоке: окно настроек
-    (и его перетаскивание) больше не может его тормозить."""
-
     def __init__(self, cfg):
         super().__init__(daemon=True)
         self.cfg = cfg
@@ -4571,8 +3239,7 @@ class Overlay(threading.Thread):
         self.mon_rects = []
         self.last_check = 0.0
         self.last_mons = 0.0
-        self._after_fast = None
-        self._after_slow = None
+        self.window_hook, self.window_event_proc = None, None
 
     @property
     def active(self):
@@ -4582,14 +3249,13 @@ class Overlay(threading.Thread):
         self.q.put(msg)
 
     def run(self):
-        root = None
         try:
             root = tk.Tk()
+            root.report_callback_exception = report_tk_exception
             self.root = root
-            vx = int(user32.GetSystemMetrics(76))
-            vy = int(user32.GetSystemMetrics(77))
-            W = max(200, int(user32.GetSystemMetrics(78)))
-            H = max(200, int(user32.GetSystemMetrics(79)))
+            root.withdraw()
+            vx, vy = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+            W, H = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
             root.overrideredirect(True)
             root.geometry("%dx%d+%d+%d" % (W, H, vx, vy))
             root.configure(bg=KEY)
@@ -4600,23 +3266,35 @@ class Overlay(threading.Thread):
             root.update_idletasks()
             hwnd = user32.GetParent(root.winfo_id()) or root.winfo_id()
             ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            user32.SetWindowLongW(
-                hwnd,
-                GWL_EXSTYLE,
-                ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
-            )
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
+                                  ex | WS_EX_LAYERED | WS_EX_TRANSPARENT |
+                                  WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+            root.deiconify()
+            root.lift()
             self.engine = Engine(cv, self.cfg, (vx, vy, W, H))
+            self.install_window_hook()
             self.fast()
             self.slow()
             root.mainloop()
         except Exception:
             log_error("overlay thread")
         finally:
-            if root is not None:
+            if self.window_hook:
                 try:
-                    root.destroy()
+                    user32.UnhookWinEvent(self.window_hook)
                 except Exception:
                     pass
+
+    def install_window_hook(self):
+        def moved(_hook, event, hwnd, object_id, child_id, _thread_id, _event_time):
+            if event == EVENT_OBJECT_LOCATIONCHANGE and object_id == 0 and child_id == 0:
+                if self.engine:
+                    self.engine.window_location_changed(hwnd)
+
+        self.window_event_proc = WINEVENTPROC(moved)
+        self.window_hook = user32.SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None,
+            self.window_event_proc, 0, 0, 0)
 
     def drain(self):
         while True:
@@ -4664,136 +3342,151 @@ class Overlay(threading.Thread):
             self.apply_visibility()
 
     def fast(self):
-        delay = 8
+        delay = 60
         try:
             self.drain()
             if self.stopping:
-                if self._after_fast is not None:
-                    try:
-                        self.root.after_cancel(self._after_fast)
-                    except Exception:
-                        pass
-                if self._after_slow is not None:
-                    try:
-                        self.root.after_cancel(self._after_slow)
-                    except Exception:
-                        pass
                 self.root.quit()
                 return
             now = time.time()
             self.check_pause(now)
             if self.active:
                 self.engine.scene_tick(now)
+                if now < self.engine.fast_until:
+                    delay = 28
             else:
                 delay = 150
         except Exception:
             log_error("overlay fast")
-        if not self.stopping:
-            self._after_fast = self.root.after(delay, self.fast)
+        self.root.after(delay, self.fast)
 
     def slow(self):
         try:
-            if self.stopping:
-                return
             if self.active:
                 self.engine.tick(time.time())
         except Exception:
             log_error("overlay slow")
-        if not self.stopping:
-            fps = self.cfg["fps"]
-            if self.cfg["perf_mode"] == "Экономия":
-                fps = min(fps, 20)
-            delay = max(8, int(1000 / max(5, fps))) if self.active else 150
-            self._after_slow = self.root.after(delay, self.slow)
+        fps = self.cfg["fps"]
+        if self.cfg["perf_mode"] == "Экономия":
+            fps = min(fps, 25)
+        self.root.after(max(8, int(1000 / max(10, fps))) if self.active else 150, self.slow)
 
 
-# ---------------------------------------------------------------- Интерфейс
+# ---------------------------------------------------------------- Интерфейс (тактильные кнопки + анимации)
 THEMES = {
-    "Тёмная (фиолет)": {
-        "bg": "#12102B",
-        "side": "#0D0B22",
-        "card": "#1B1840",
-        "card2": "#262253",
-        "fg": "#F2F0FF",
-        "muted": "#9A95C7",
-        "accent": "#8B5CF6",
-        "accent2": "#EC4899",
-        "line": "#2D2961",
-        "track": "#3A3570",
-        "on_acc": "#FFFFFF",
-    },
-    "Тёмная (синяя)": {
-        "bg": "#0B1426",
-        "side": "#08101F",
-        "card": "#12203A",
-        "card2": "#1A2D4F",
-        "fg": "#EAF2FF",
-        "muted": "#8AA0C4",
-        "accent": "#38BDF8",
-        "accent2": "#6366F1",
-        "line": "#1F3358",
-        "track": "#2B4272",
-        "on_acc": "#06121F",
-    },
-    "Графит": {
-        "bg": "#16181D",
-        "side": "#101216",
-        "card": "#1F2229",
-        "card2": "#2A2E37",
-        "fg": "#ECEEF2",
-        "muted": "#8D93A1",
-        "accent": "#22D3A6",
-        "accent2": "#38BDF8",
-        "line": "#2E323C",
-        "track": "#3A3F4B",
-        "on_acc": "#06140F",
-    },
-    "Светлая": {
-        "bg": "#F3F4FA",
-        "side": "#FFFFFF",
-        "card": "#FFFFFF",
-        "card2": "#ECEEF8",
-        "fg": "#1B1D2A",
-        "muted": "#6B7090",
-        "accent": "#6C5CE7",
-        "accent2": "#EC4899",
-        "line": "#E1E3F0",
-        "track": "#CFD3E8",
-        "on_acc": "#FFFFFF",
-    },
+    "Ночной океан": {"bg": "#0B1320", "side": "#080E18", "card": "#111C2E", "card2": "#182740",
+                     "fg": "#EDF4FF", "muted": "#879BB8", "accent": "#38BDF8", "accent2": "#0EA5E9",
+                     "line": "#1E304D", "track": "#273D61", "on_acc": "#051320"},
+    "Полночный фиолет": {"bg": "#110F24", "side": "#0B091A", "card": "#191636", "card2": "#24204D",
+                         "fg": "#F3F1FF", "muted": "#9993C4", "accent": "#8B5CF6", "accent2": "#6D28D9",
+                         "line": "#2C275C", "track": "#383270", "on_acc": "#FFFFFF"},
+    "Графит": {"bg": "#14161A", "side": "#0E1013", "card": "#1C1F26", "card2": "#262A33",
+               "fg": "#ECEEF2", "muted": "#8B919E", "accent": "#10B981", "accent2": "#059669",
+               "line": "#2B303B", "track": "#363C4A", "on_acc": "#041710"},
+    "Светлая": {"bg": "#F2F4F8", "side": "#FFFFFF", "card": "#FFFFFF", "card2": "#E9EDF5",
+                "fg": "#181B24", "muted": "#666D80", "accent": "#2563EB", "accent2": "#1D4ED8",
+                "line": "#DCE1EC", "track": "#C8D0E0", "on_acc": "#FFFFFF"},
 }
-ACCENTS = {
-    "Фиолетовый": "#8B5CF6",
-    "Голубой": "#38BDF8",
-    "Розовый": "#F472B6",
-    "Зелёный": "#34D399",
-    "Оранжевый": "#FB923C",
-}
+ACCENTS = {"Небесный": "#38BDF8", "Фиолетовый": "#8B5CF6", "Изумрудный": "#10B981",
+           "Янтарный": "#F59E0B", "Коралловый": "#F43F5E"}
 FONT_SCALE = {"Мелкий": 0.9, "Обычный": 1.0, "Крупный": 1.15}
 
 
 def make_theme(cfg):
-    th = dict(THEMES.get(cfg["ui_theme"], THEMES["Тёмная (фиолет)"]))
+    th = dict(THEMES.get(cfg["ui_theme"], THEMES["Ночной океан"]))
     acc = ACCENTS.get(cfg["ui_accent"])
     if acc:
         th["accent"] = acc
+        th["accent2"] = blend(acc, 0.82)
     th["font_k"] = FONT_SCALE.get(cfg["ui_font"], 1.0)
     return th
 
 
+class TactileButton(tk.Canvas):
+    """Кнопка с физическим проседанием при нажатии и плавным возвратом."""
+
+    def __init__(self, parent, th, k, text, command, accent=False, width=None, height=36):
+        self.th, self.k, self.text, self.cmd = th, k, text, command
+        self.accent = accent
+        self.h = int(height * k)
+        w = int(width * k) if width else max(int(120 * k), int((len(text) * 9 + 34) * k))
+        self.w = w
+        super().__init__(parent, width=w, height=self.h + int(4 * k),
+                         bg=parent.cget("bg"), highlightthickness=0, bd=0, cursor="hand2")
+        self.hover = False
+        self.pressed = False
+        self.bind("<Enter>", self._enter)
+        self.bind("<Leave>", self._leave)
+        self.bind("<ButtonPress-1>", self._down)
+        self.bind("<ButtonRelease-1>", self._up)
+        self.bind("<Configure>", self._resize)
+        self.draw()
+
+    def _resize(self, e):
+        if e.width > 10 and e.width != self.w:
+            self.w = e.width
+            self.draw()
+
+    def _enter(self, _e):
+        self.hover = True
+        self.draw()
+
+    def _leave(self, _e):
+        self.hover = False
+        self.pressed = False
+        self.draw()
+
+    def _down(self, _e):
+        self.pressed = True
+        self.draw()
+
+    def _up(self, e):
+        was = self.pressed
+        self.pressed = False
+        self.draw()
+        if was and 0 <= e.x <= self.w and 0 <= e.y <= self.h + 4 * self.k:
+            self.cmd()
+
+    def round_rect(self, x1, y1, x2, y2, r, **kw):
+        pts = [
+            x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+            x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+            x1, y2, x1, y2 - r, x1, y1 + r, x1, y1
+        ]
+        return self.create_polygon(*pts, smooth=True, **kw)
+
+    def draw(self):
+        self.delete("all")
+        th, k = self.th, self.k
+        w, h = self.w, self.h
+        sink = int(2.5 * k) if self.pressed else 0
+        r = int(9 * k)
+        base = th["accent"] if self.accent else th["card2"]
+        if self.pressed:
+            fill = blend(base, 0.86)
+        elif self.hover:
+            fill = mix(base, "#FFFFFF", 0.10)
+        else:
+            fill = base
+        shadow = blend(base, 0.45) if self.accent else th["line"]
+        # Нижняя объёмная кромка
+        if not self.pressed:
+            self.round_rect(1, int(3 * k), w - 1, h + int(3 * k), r, fill=shadow, outline="")
+        self.round_rect(1, 1 + sink, w - 1, h + sink, r, fill=fill,
+                        outline="" if self.accent else th["line"])
+        fg = th["on_acc"] if self.accent else th["fg"]
+        self.create_text(w / 2, h / 2 + sink, text=self.text, fill=fg,
+                         font=("Segoe UI", max(8, int(round(9.5 * th["font_k"]))), "bold"))
+
+
 class Toggle(tk.Canvas):
     def __init__(self, parent, th, k, value, command):
-        super().__init__(
-            parent,
-            width=int(48 * k),
-            height=int(26 * k),
-            bg=th["card"],
-            highlightthickness=0,
-            bd=0,
-            cursor="hand2",
-        )
+        super().__init__(parent, width=int(48 * k), height=int(26 * k), bg=th["card"],
+                         highlightthickness=0, bd=0, cursor="hand2")
         self.th, self.k, self.v, self.cmd = th, k, bool(value), command
-        self.bind("<Button-1>", self._click)
+        self.pressed = False
+        self.bind("<ButtonPress-1>", self._down)
+        self.bind("<ButtonRelease-1>", self._up)
         self.draw()
 
     def draw(self):
@@ -4804,16 +3497,16 @@ class Toggle(tk.Canvas):
         self.create_oval(23 * k, 1 * k, 47 * k, 25 * k, fill=col, outline=col)
         self.create_rectangle(13 * k, 1 * k, 35 * k, 25 * k, fill=col, outline=col)
         x = 35 if self.v else 13
-        self.create_oval(
-            (x - 10) * k,
-            3 * k,
-            (x + 10) * k,
-            23 * k,
-            fill="#FFFFFF",
-            outline="",
-        )
+        stretch = 2.0 if self.pressed else 0.0
+        self.create_oval((x - 10 - stretch) * k, 3 * k, (x + 10 + stretch) * k, 23 * k,
+                         fill="#FFFFFF", outline="")
 
-    def _click(self, _e):
+    def _down(self, _e):
+        self.pressed = True
+        self.draw()
+
+    def _up(self, _e):
+        self.pressed = False
         self.set(not self.v)
         self.cmd(self.v)
 
@@ -4823,32 +3516,34 @@ class Toggle(tk.Canvas):
 
 
 class Slider(tk.Canvas):
-    def __init__(self, parent, th, k, lo, hi, step, value, command, width=220):
+    def __init__(self, parent, th, k, lo, hi, step, value, command, width=210):
         self.k, self.w = k, int(width * k)
-        super().__init__(
-            parent,
-            width=self.w + int(60 * k),
-            height=int(28 * k),
-            bg=th["card"],
-            highlightthickness=0,
-            bd=0,
-            cursor="hand2",
-        )
+        super().__init__(parent, width=self.w + int(58 * k), height=int(28 * k), bg=th["card"],
+                         highlightthickness=0, bd=0, cursor="hand2")
         self.th, self.lo, self.hi, self.step, self.cmd = th, lo, hi, step, command
         self.is_int = isinstance(step, int)
         self.v = value
-        self.bind("<Button-1>", self._press)
+        self.dragging = False
+        self.bind("<ButtonPress-1>", self._down)
         self.bind("<B1-Motion>", self._press)
+        self.bind("<ButtonRelease-1>", self._up)
         self.draw()
 
     def _val(self, x):
         pad = 10 * self.k
-        span_px = float(self.w - 2 * pad)
-        f = 0.0 if span_px <= 0 else max(0.0, min(1.0, (x - pad) / span_px))
+        f = max(0.0, min(1.0, (x - pad) / float(self.w - 2 * pad)))
         v = self.lo + f * (self.hi - self.lo)
         v = round(v / self.step) * self.step
         v = max(self.lo, min(self.hi, v))
         return int(round(v)) if self.is_int else round(v, 2)
+
+    def _down(self, e):
+        self.dragging = True
+        self._press(e)
+
+    def _up(self, _e):
+        self.dragging = False
+        self.draw()
 
     def _press(self, e):
         v = self._val(e.x)
@@ -4869,49 +3564,20 @@ class Slider(tk.Canvas):
         x0, x1 = pad, self.w - pad
         span = float(self.hi - self.lo) or 1.0
         fx = x0 + (float(self.v) - self.lo) / span * (x1 - x0)
-        self.create_line(
-            x0, y, x1, y, width=int(6 * k), fill=th["track"], capstyle="round"
-        )
-        self.create_line(
-            x0,
-            y,
-            max(x0, fx),
-            y,
-            width=int(6 * k),
-            fill=th["accent"],
-            capstyle="round",
-        )
-        self.create_oval(
-            fx - 8 * k,
-            y - 8 * k,
-            fx + 8 * k,
-            y + 8 * k,
-            fill="#FFFFFF",
-            outline=th["accent"],
-            width=2,
-        )
-        self.create_text(
-            self.w + 6 * k,
-            y,
-            text="%g" % round(float(self.v), 2),
-            anchor="w",
-            fill=th["accent"],
-            font=("Segoe UI", int(10 * th["font_k"]), "bold"),
-        )
+        self.create_line(x0, y, x1, y, width=int(6 * k), fill=th["track"], capstyle="round")
+        self.create_line(x0, y, max(x0, fx), y, width=int(6 * k), fill=th["accent"], capstyle="round")
+        rr = (9.5 if self.dragging else 8.0) * k
+        self.create_oval(fx - rr, y - rr, fx + rr, y + rr, fill="#FFFFFF", outline=th["accent"], width=2)
+        self.create_text(self.w + 6 * k, y, text="%g" % round(float(self.v), 2), anchor="w",
+                         fill=th["accent"], font=("Segoe UI", int(10 * th["font_k"]), "bold"))
 
 
 class Drop:
-    def __init__(self, parent, values, value, command, font, width=22):
+    def __init__(self, parent, values, value, command, font, width=21):
         self.values = list(values)
         self.var = tk.StringVar(value=value)
-        self.w = ttk.Combobox(
-            parent,
-            textvariable=self.var,
-            values=values,
-            state="readonly",
-            width=width,
-            font=font,
-        )
+        self.w = ttk.Combobox(parent, textvariable=self.var, values=values, state="readonly",
+                              width=width, font=font)
         self.w.bind("<<ComboboxSelected>>", lambda e: command(self.var.get()))
 
     def pack(self, **kw):
@@ -4924,20 +3590,12 @@ class Drop:
 class Swatch:
     def __init__(self, parent, value, command):
         self.cmd, self.v = command, value
-        self.b = tk.Button(
-            parent,
-            width=6,
-            relief="flat",
-            bd=0,
-            cursor="hand2",
-            bg=value,
-            activebackground=value,
-            command=self._pick,
-        )
+        self.b = tk.Button(parent, width=5, relief="flat", bd=0, cursor="hand2", bg=value,
+                           activebackground=value, command=self._pick)
 
     def _pick(self):
         c = colorchooser.askcolor(self.v)[1]
-        if c and is_valid_hex(c):
+        if c:
             self.set(c)
             self.cmd(c)
 
@@ -4955,54 +3613,121 @@ class ScrollFrame(tk.Frame):
         self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0, bd=0)
         sb = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.inner = tk.Frame(self.canvas, bg=bg)
-        self.inner.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
+        self.inner.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
-        self.canvas.bind(
-            "<Configure>", lambda e: self.canvas.itemconfigure(self.win, width=e.width)
-        )
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.win, width=e.width))
         self.canvas.configure(yscrollcommand=sb.set)
         self.canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        self._wheel_bound = False
         self.canvas.bind("<Enter>", self._bind)
         self.canvas.bind("<Leave>", self._unbind)
         self.inner.bind("<Enter>", self._bind)
-        self.bind("<Destroy>", self._on_destroy)
 
     def _bind(self, _e=None):
-        if not self._wheel_bound:
-            self.canvas.bind_all("<MouseWheel>", self._wheel)
-            self._wheel_bound = True
+        self.canvas.bind_all("<MouseWheel>", self._wheel)
 
     def _unbind(self, _e=None):
-        if self._wheel_bound:
-            try:
-                self.canvas.unbind_all("<MouseWheel>")
-            except Exception:
-                pass
-            self._wheel_bound = False
-
-    def _on_destroy(self, _e=None):
-        self._unbind()
+        self.canvas.unbind_all("<MouseWheel>")
 
     def _wheel(self, e):
-        if self.winfo_exists():
-            self.canvas.yview_scroll(int(-e.delta / 120), "units")
+        self.canvas.yview_scroll(int(-e.delta / 120), "units")
+
+
+# ---------------------------------------------------------------- Анимированная иконка погоды для карточки дня
+class WeatherAnimIcon(tk.Canvas):
+    def __init__(self, parent, bg, kind, color, size=56):
+        super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0, bd=0)
+        self.kind = kind
+        self.color = color
+        self.S = size
+        self.t = random.uniform(0, 10)
+        self.drops = [(random.uniform(0.22, 0.78) * size, random.uniform(0.55, 0.92) * size) for _ in range(5)]
+
+    def step(self):
+        self.t += 0.14
+        self.delete("all")
+        S = self.S
+        cx, cy = S * 0.5, S * 0.48
+        k = self.kind
+
+        if k in ("sun", "sun_cloud"):
+            sx, sy = (cx, cy) if k == "sun" else (S * 0.36, S * 0.36)
+            r = S * (0.21 if k == "sun" else 0.15)
+            for i in range(10):
+                a = self.t * 0.4 + i * math.tau / 10.0
+                r1 = r * 1.25
+                r2 = r * (1.72 + 0.18 * math.sin(self.t * 2 + i))
+                self.create_line(sx + math.cos(a) * r1, sy + math.sin(a) * r1,
+                                 sx + math.cos(a) * r2, sy + math.sin(a) * r2,
+                                 fill="#FFB300", width=2, capstyle="round")
+            self.create_oval(sx - r, sy - r, sx + r, sy + r, fill="#FFC107", outline="#FFE082", width=1)
+
+        if k in ("sun_cloud", "cloud", "rain", "snow", "snow_rain", "storm"):
+            drift = math.sin(self.t * 0.6) * 2.2
+            oy = S * (0.08 if k in ("rain", "snow", "snow_rain", "storm") else 0.04)
+            col = "#E2E8F0" if k in ("sun_cloud", "snow") else ("#64748B" if k == "storm" else "#94A3B8")
+            self.create_oval(S * 0.18 + drift, S * 0.34 - oy, S * 0.52 + drift, S * 0.62 - oy, fill=col, outline="")
+            self.create_oval(S * 0.34 + drift, S * 0.24 - oy, S * 0.70 + drift, S * 0.58 - oy, fill=col, outline="")
+            self.create_oval(S * 0.52 + drift, S * 0.34 - oy, S * 0.84 + drift, S * 0.62 - oy, fill=col, outline="")
+            self.create_rectangle(S * 0.28 + drift, S * 0.44 - oy, S * 0.74 + drift, S * 0.62 - oy, fill=col, outline="")
+
+        if k in ("rain", "snow_rain", "storm"):
+            for idx, (dx, dy) in enumerate(self.drops):
+                ny = dy + 2.6
+                if ny > S * 0.94:
+                    ny = S * 0.56
+                self.drops[idx] = (dx, ny)
+                self.create_line(dx, ny, dx - 2.5, ny + 6, fill="#38BDF8", width=1.8, capstyle="round")
+
+        if k in ("snow", "snow_rain"):
+            for idx, (dx, dy) in enumerate(self.drops):
+                ny = dy + 1.4
+                nx = dx + math.sin(self.t + idx) * 0.6
+                if ny > S * 0.94:
+                    ny = S * 0.56
+                self.drops[idx] = (nx, ny)
+                self.create_oval(nx - 2, ny - 2, nx + 2, ny + 2, fill="#E0F2FE", outline="")
+
+        if k == "storm":
+            if int(self.t * 2) % 5 == 0:
+                self.create_polygon(S * 0.48, S * 0.54, S * 0.40, S * 0.72, S * 0.49, S * 0.72,
+                                    S * 0.43, S * 0.92, S * 0.58, S * 0.68, S * 0.49, S * 0.68,
+                                    fill="#FDE047", outline="")
 
 
 PAGES = [
-    ("home", "⌂", "Режимы", "Готовые наборы — один клик, и всё настроено"),
-    ("fall", "❄", "Что падает", "Снег, листья, конфетти, дождь и другое"),
-    ("weather", "☁", "Погода и ветер", "Куда и как сильно дует ветер, метель"),
-    ("garland", "✦", "Гирлянда", "Украшения на верхнем крае окон"),
-    ("snow", "☃", "Сугробы и снеговики", "Снег на окнах, лепка снеговиков, уборочная машина"),
-    ("sky", "☾", "Небо и природа", "Сияние, звёзды, солнце, луна, облака, птицы"),
-    ("party", "★", "Праздник", "Дед Мороз, ёлка, салют, отсчёт, подсветка"),
-    ("cursor", "☝", "Курсор", "Как снег реагирует на мышку и след за курсором"),
-    ("app", "⚙", "Приложение", "Запуск, производительность, внешний вид"),
+    ("home", "⌂", "Режимы", "Готовые атмосферы в один клик"),
+    ("forecast", "⛅", "Погода", "Прогноз на неделю по вашему городу и синхронизация с экраном"),
+    ("fall", "❄", "Осадки", "Снег, листья, дождь, звёзды и их количество"),
+    ("weather", "≋", "Ветер и метель", "Сила ветра, порывы и снежная буря"),
+    ("garland", "✦", "Гирлянда", "Гирлянда вдоль верхнего края экрана"),
+    ("snow", "☃", "Сугробы и снеговики", "Накопление снега на окнах и лепка снеговиков"),
+    ("sky", "☾", "Небо и природа", "Сияние, звёзды, солнце, луна, облака и метеоры"),
+    ("party", "★", "Праздник", "Дед Мороз, ёлка, салют и отсчёт до даты"),
+    ("cursor", "☝", "Курсор", "Взаимодействие курсора со снегом и шлейф"),
+    ("app", "⚙", "Приложение", "Автозапуск, производительность и тема"),
+]
+
+SEARCH_ITEMS = [
+    ("Прогноз погоды на неделю", "forecast", "Прогноз на 7 дней", "погода город неделя дождь снег температура прогноз"),
+    ("Режимы и сезоны", "home", "Готовые режимы", "зима осень весна лето новый год вечеринка пресет"),
+    ("Снег и снежинки", "fall", "Снег", "снег снегопад снежинка хлопья кристаллы"),
+    ("Количество и скорость снега", "fall", "Количество и скорость", "количество плотность скорость размер много снега"),
+    ("Листья, дождь и звёзды", "fall", "Свой набор", "листья осень конфетти дождь пузыри сердечки звёзды"),
+    ("Ветер", "weather", "Ветер", "ветер порывы направление"),
+    ("Метель", "weather", "Метель", "метель буран снежная буря"),
+    ("Гирлянда сверху экрана", "garland", "Гирлянда на верхнем крае экрана", "гирлянда лампочки верх экран монитор"),
+    ("Вид гирлянды", "garland", "Вид", "гирлянда сосульки шарики звезды фонарики цветы флажки"),
+    ("Сугробы и снеговики", "snow", "Сугробы", "сугроб снег снеговик уборка машина"),
+    ("Северное сияние", "sky", "Северное сияние", "сияние аврора зелёное бирюзовое"),
+    ("Звёзды и падающие звёзды", "sky", "Звёздное небо", "звезды звёзды небо мерцание падающие"),
+    ("Солнце и луна", "sky", "Солнце и луна", "солнце луна фаза день ночь"),
+    ("Облака", "sky", "Облака", "облака пасмурно закат большие"),
+    ("Метеоры", "sky", "Метеоры", "метеор болид комета"),
+    ("Дед Мороз", "party", "Дед Мороз", "дед мороз сани подарки"),
+    ("Ёлка и фейерверки", "party", "Новогодняя ёлка", "ёлка елка салют фейерверк отсчёт"),
+    ("Курсор и след", "cursor", "Курсор и снег", "курсор мышь ветер сметать след искры"),
+    ("Производительность и тема", "app", "Производительность", "производительность fps кадры тема автозапуск"),
 ]
 
 
@@ -5013,24 +3738,32 @@ class App:
         self.effects_on = True
         self.ctl, self.page_frames = {}, {}
         self.cur_page = "home"
+        self.search_matches = []
+        self.search_placeholder = True
         self.show_flag = threading.Event()
-        self.stop_flag = threading.Event()
         self.tray = None
         self._dirty, self._last_change = False, 0.0
         self._flash_until = 0.0
-        self._flash_text = ""
-        self._poll_id = None
-        root.title("Времена года и гирлянда")
-        root.geometry("%dx%d" % (int(1040 * self.k), int(740 * self.k)))
-        root.minsize(int(920 * self.k), int(620 * self.k))
+        self.weather_data = None
+        self.weather_loading = False
+        self.weather_error = ""
+        self.weather_icons = []
+        root.title(APP_TITLE)
+        try:
+            self.app_icon = tk.PhotoImage(file=resource_path("AuraDesk.png"))
+            root.iconphoto(True, self.app_icon)
+        except Exception:
+            self.app_icon = None
+        root.geometry("%dx%d" % (int(1080 * self.k), int(760 * self.k)))
+        root.minsize(int(940 * self.k), int(640 * self.k))
         self.build_ui_safe()
         try:
-            self.tray = Tray("Времена года и гирлянда", self.tray_cmd, self.tray_state)
+            self.tray = Tray("AuraDesk — атмосфера рабочего стола", self.tray_cmd, self.tray_state)
         except Exception:
             log_error("tray")
             self.tray = None
         try:
-            start_show_listener(self.show_flag, self.stop_flag)
+            start_show_listener(self.show_flag)
         except Exception:
             log_error("show listener")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -5038,7 +3771,10 @@ class App:
             self.hide()
         elif hidden:
             root.iconify()
+        if self.cfg.get("weather_city"):
+            self.load_weather_async(self.cfg["weather_city"])
         self.poll()
+        self.animate_widgets()
 
     def show(self):
         self.root.deiconify()
@@ -5064,31 +3800,17 @@ class App:
         return {"on": self.effects_on, "auto": is_autostart()}
 
     def tray_cmd(self, cmd):
-        fn = {
-            1: self.show,
-            2: lambda: self.set_effects(not self.effects_on, True),
-            3: lambda: self.set_autostart_ui(not is_autostart(), True),
-            9: self.quit,
-        }.get(cmd)
+        fn = {1: self.show, 2: lambda: self.set_effects(not self.effects_on, True),
+              3: lambda: self.set_autostart_ui(not is_autostart(), True), 9: self.quit}.get(cmd)
         if fn:
             self.root.after(10, fn)
 
     def quit(self):
-        self.stop_flag.set()
-        if self._poll_id is not None:
-            try:
-                self.root.after_cancel(self._poll_id)
-            except Exception:
-                pass
         save_cfg(self.cfg)
         if self.tray:
             self.tray.remove()
         self.ov.send("stop")
-        self.ov.join(timeout=1.0)
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+        time.sleep(0.15)
         os._exit(0)
 
     def set_effects(self, on, from_menu=False):
@@ -5103,6 +3825,125 @@ class App:
         t = self.ctl.get("_autostart")
         if t:
             t.set(is_autostart() if not ok else on)
+
+    # ---- поиск
+    def search_focus_in(self, _event=None):
+        if self.search_placeholder:
+            self.search_entry.delete(0, "end")
+            self.search_entry.configure(fg=self.th["fg"])
+            self.search_placeholder = False
+
+    def search_focus_out(self, _event=None):
+        if not self.search_entry.get().strip():
+            self.search_results_box.pack_forget()
+            self.search_results_title.pack_forget()
+            self.search_clear_btn.pack_forget()
+            self.search_matches = []
+            self.search_entry.delete(0, "end")
+            self.search_entry.insert(0, "Поиск по настройкам...")
+            self.search_entry.configure(fg=self.th["muted"])
+            self.search_placeholder = True
+
+    def search_update(self, event=None):
+        if event and event.keysym in ("Return", "Down", "Up", "Escape"):
+            return
+        if self.search_placeholder:
+            return
+        query = self.search_entry.get().strip().casefold()
+        self.search_results_box.delete(0, "end")
+        if not query:
+            self.search_results_box.pack_forget()
+            self.search_results_title.pack_forget()
+            self.search_clear_btn.pack_forget()
+            self.search_matches = []
+            return
+        self.search_clear_btn.pack(side="right", padx=(0, 7))
+        matches = [item for item in SEARCH_ITEMS
+                   if query in item[0].casefold() or query in item[3].casefold()]
+        matches.sort(key=lambda item: (
+            0 if item[0].casefold().startswith(query) else
+            1 if query in item[0].casefold() else 2,
+            len(item[0])))
+        self.search_matches = matches[:6]
+        if not self.search_matches:
+            self.search_results_box.insert("end", "Ничего не найдено")
+            self.search_results_box.configure(height=1, fg=self.th["muted"])
+            self.search_results_title.configure(text="НЕТ СОВПАДЕНИЙ")
+        else:
+            self.search_results_box.configure(height=len(self.search_matches), fg=self.th["fg"])
+            for item in self.search_matches:
+                self.search_results_box.insert("end", item[0])
+            self.search_results_title.configure(text="РЕЗУЛЬТАТЫ · ENTER")
+        self.search_results_title.pack(fill="x", padx=3, pady=(6, 2))
+        self.search_results_box.pack(fill="x", pady=(3, 0))
+
+    def search_clear(self, _event=None):
+        self.search_entry.delete(0, "end")
+        self.search_entry.focus_set()
+        self.search_update()
+        return "break"
+
+    def search_focus_results(self, _event=None):
+        if self.search_matches:
+            self.search_results_box.focus_set()
+            self.search_results_box.selection_clear(0, "end")
+            self.search_results_box.selection_set(0)
+            self.search_results_box.activate(0)
+        return "break"
+
+    def search_return_to_entry(self, _event=None):
+        self.search_entry.focus_set()
+        return "break"
+
+    def search_choose_first(self, _event=None):
+        if self.search_matches:
+            self.search_open(self.search_matches[0])
+        return "break"
+
+    def search_choose(self, _event=None):
+        selection = self.search_results_box.curselection()
+        if selection and selection[0] < len(self.search_matches):
+            self.search_open(self.search_matches[selection[0]])
+        return "break"
+
+    def search_open(self, item):
+        _label, page_id, section, _terms = item
+        self.search_matches = []
+        self.search_results_box.pack_forget()
+        self.search_results_title.pack_forget()
+        self.search_clear_btn.pack_forget()
+        self.search_entry.delete(0, "end")
+        self.search_entry.insert(0, "Поиск по настройкам...")
+        self.search_entry.configure(fg=self.th["muted"])
+        self.search_placeholder = True
+        self.show_page(page_id)
+        self.root.after_idle(lambda: self.scroll_to_section(page_id, section))
+
+    def scroll_to_section(self, page_id, section):
+        sf = self.page_frames.get(page_id)
+        if not sf:
+            return
+        sf.update_idletasks()
+        for outer in sf.inner.winfo_children():
+            children = outer.winfo_children()
+            if not children or not isinstance(children[0], tk.Label):
+                continue
+            if children[0].cget("text").casefold() != section.casefold():
+                continue
+            region = sf.canvas.bbox("all")
+            total = max(1, (region[3] - region[1]) if region else 1)
+            sf.canvas.yview_moveto(max(0.0, min(1.0, outer.winfo_y() / total)))
+            return
+
+    def animate_widgets(self):
+        if self.cur_page == "forecast" and self.weather_icons:
+            for ic in list(self.weather_icons):
+                try:
+                    if ic.winfo_exists():
+                        ic.step()
+                except Exception:
+                    pass
+        self.root.after(75, self.animate_widgets)
 
     def poll(self):
         try:
@@ -5126,9 +3967,9 @@ class App:
                 chip.config(text=txt)
         except Exception:
             log_error("poll")
-        if not self.stop_flag.is_set():
-            self._poll_id = self.root.after(400, self.poll)
+        self.root.after(400, self.poll)
 
+    # ---- настройки
     def set_cfg(self, key, value):
         self.cfg[key] = value
         self.ov.send("notify", key)
@@ -5152,7 +3993,7 @@ class App:
             self.root.after(150, self.rebuild_ui)
 
     def apply_preset(self, pid):
-        for (i, icon, name, _desc, over) in PRESETS:
+        for (i, icon, name, desc, over) in PRESETS:
             if i == pid:
                 vals = {k: v for k, v in DEFAULTS.items() if k not in APP_KEYS}
                 vals.update(over)
@@ -5163,18 +4004,94 @@ class App:
         self._flash_text, self._flash_until = text, time.time() + 3.0
 
     def reset_all(self):
-        if messagebox.askyesno(
-            "Сброс", "Вернуть все настройки к значениям по умолчанию?"
-        ):
+        from tkinter import messagebox
+        if messagebox.askyesno("Сброс", "Вернуть все настройки к значениям по умолчанию?"):
             self.apply_values(dict(DEFAULTS))
             self.rebuild_ui()
 
+    # ---- погода на неделю
+    def load_weather_async(self, city):
+        city = (city or "").strip()
+        if not city or self.weather_loading:
+            return
+        self.cfg["weather_city"] = city
+        self._dirty, self._last_change = True, time.time()
+        self.weather_loading = True
+        self.weather_error = ""
+        if "forecast" in self.page_frames:
+            self.refresh_forecast_page()
+
+        def worker():
+            try:
+                data = fetch_city_forecast(city)
+                self.root.after(0, lambda: self._on_weather_ok(data))
+            except Exception as exc:
+                msg = str(exc) or "Не удалось получить прогноз"
+                self.root.after(0, lambda: self._on_weather_err(msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_weather_ok(self, data):
+        self.weather_loading = False
+        self.weather_data = data
+        self.weather_error = ""
+        if "forecast" in self.page_frames:
+            self.refresh_forecast_page()
+
+    def _on_weather_err(self, msg):
+        self.weather_loading = False
+        self.weather_error = msg
+        if "forecast" in self.page_frames:
+            self.refresh_forecast_page()
+
+    def refresh_forecast_page(self):
+        sf = self.page_frames.get("forecast")
+        if not sf:
+            return
+        for w in sf.inner.winfo_children():
+            w.destroy()
+        self.weather_icons = []
+        self.page_forecast(sf.inner)
+        tk.Frame(sf.inner, bg=self.th["bg"], height=24).pack()
+
+    def sync_weather_to_desktop(self):
+        if not self.weather_data:
+            return
+        d = self.weather_data
+        kind = d["kind"]
+        wind_val = min(4.5, round(d["wind"] / 8.0, 1))
+        vals = {k: v for k, v in DEFAULTS.items() if k not in APP_KEYS}
+        vals["wind_power"] = max(0.3, wind_val)
+        if kind == "snow":
+            vals.update({"season": "Зима", "fall_mode": "По сезону", "density": 320,
+                         "clouds_enabled": True, "clouds_tint": "Серые (пасмурно)",
+                         "clouds_count": 9, "pile_enabled": True})
+        elif kind == "snow_rain":
+            vals.update({"fall_mode": "Свой набор", "k_snow": True, "k_rain": True, "density": 300,
+                         "clouds_enabled": True, "clouds_tint": "Серые (пасмурно)", "clouds_count": 10})
+        elif kind in ("rain", "storm"):
+            vals.update({"fall_mode": "Свой набор", "k_snow": False, "k_rain": True, "density": 360,
+                         "clouds_enabled": True, "clouds_tint": "Серые (пасмурно)", "clouds_count": 11,
+                         "gust_power": 1.3, "pile_enabled": False})
+        elif kind == "sun":
+            vals.update({"fall_mode": "Свой набор", "k_snow": False, "k_firefly": True, "density": 70,
+                         "sky_body": "Солнце", "clouds_enabled": True, "clouds_tint": "Белые",
+                         "clouds_count": 4, "pile_enabled": False})
+        elif kind == "sun_cloud":
+            vals.update({"fall_mode": "Свой набор", "k_snow": False, "k_spring": True, "density": 90,
+                         "sky_body": "Солнце", "clouds_enabled": True, "clouds_tint": "Белые",
+                         "clouds_count": 7, "pile_enabled": False})
+        else:
+            vals.update({"fall_mode": "Свой набор", "k_snow": False, "k_leaf": True, "density": 110,
+                         "clouds_enabled": True, "clouds_tint": "Серые (пасмурно)",
+                         "clouds_count": 10, "pile_enabled": False})
+        self.apply_values(vals)
+        self.flash(f"⛅  Погода «{d['city']}: {d['label']}» применена")
+
+    # ---- построение интерфейса
     def F(self, size, bold=False, symbol=False):
-        return (
-            "Segoe UI Symbol" if symbol else "Segoe UI",
-            max(7, int(round(size * self.th["font_k"]))),
-            "bold" if bold else "normal",
-        )
+        return ("Segoe UI Symbol" if symbol else "Segoe UI", max(7, int(round(size * self.th["font_k"]))),
+                "bold" if bold else "normal")
 
     def build_ui_safe(self):
         try:
@@ -5183,21 +4100,15 @@ class App:
             log_error("build_ui")
             for w in self.root.winfo_children():
                 w.destroy()
-            tk.Label(
-                self.root,
-                text="Не удалось построить меню.\nЭффекты продолжают работать.\n\n"
-                "Подробности: " + LOG_PATH,
-                justify="left",
-                padx=20,
-                pady=20,
-            ).pack()
+            tk.Label(self.root, text="Не удалось построить интерфейс.\nЭффекты продолжают работать.\n\n"
+                                     "Журнал: " + LOG_PATH, justify="left", padx=20, pady=20).pack()
             tk.Button(self.root, text="Выход", command=self.quit).pack(pady=10)
 
     def rebuild_ui(self):
         keep = self.cur_page
         for w in self.root.winfo_children():
             w.destroy()
-        self.ctl, self.page_frames = {}, {}
+        self.ctl, self.page_frames, self.weather_icons = {}, {}, []
         self.build_ui_safe()
         try:
             self.show_page(keep)
@@ -5208,33 +4119,13 @@ class App:
         th = self.th
         st = ttk.Style()
         st.theme_use("clam")
-        st.configure(
-            "TCombobox",
-            fieldbackground=th["card2"],
-            background=th["card2"],
-            foreground=th["fg"],
-            arrowcolor=th["fg"],
-            bordercolor=th["line"],
-            lightcolor=th["card2"],
-            darkcolor=th["card2"],
-            padding=5,
-        )
-        st.map(
-            "TCombobox",
-            fieldbackground=[("readonly", th["card2"])],
-            foreground=[("readonly", th["fg"])],
-            selectbackground=[("readonly", th["card2"])],
-            selectforeground=[("readonly", th["fg"])],
-        )
-        st.configure(
-            "Vertical.TScrollbar",
-            background=th["card2"],
-            troughcolor=th["bg"],
-            bordercolor=th["bg"],
-            arrowcolor=th["fg"],
-            lightcolor=th["card2"],
-            darkcolor=th["card2"],
-        )
+        st.configure("TCombobox", fieldbackground=th["card2"], background=th["card2"], foreground=th["fg"],
+                     arrowcolor=th["fg"], bordercolor=th["line"], lightcolor=th["card2"],
+                     darkcolor=th["card2"], padding=5)
+        st.map("TCombobox", fieldbackground=[("readonly", th["card2"])], foreground=[("readonly", th["fg"])],
+               selectbackground=[("readonly", th["card2"])], selectforeground=[("readonly", th["fg"])])
+        st.configure("Vertical.TScrollbar", background=th["card2"], troughcolor=th["bg"],
+                     bordercolor=th["bg"], arrowcolor=th["fg"], lightcolor=th["card2"], darkcolor=th["card2"])
         self.root.option_add("*TCombobox*Listbox.background", th["card2"])
         self.root.option_add("*TCombobox*Listbox.foreground", th["fg"])
         self.root.option_add("*TCombobox*Listbox.selectBackground", th["accent"])
@@ -5247,781 +4138,553 @@ class App:
         self.style_ttk()
         shell = tk.Frame(self.root, bg=th["bg"])
         shell.pack(fill="both", expand=True)
-        side = tk.Frame(shell, bg=th["side"], width=int(224 * k))
+        side = tk.Frame(shell, bg=th["side"], width=int(232 * k))
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
+
         logo = tk.Frame(side, bg=th["side"])
-        logo.pack(fill="x", padx=18, pady=(22, 18))
-        tk.Label(
-            logo,
-            text="❄",
-            bg=th["side"],
-            fg=th["accent"],
-            font=self.F(24, True, True),
-        ).pack(side="left")
-        tl = tk.Frame(logo, bg=th["side"])
-        tl.pack(side="left", padx=(10, 0))
-        tk.Label(
-            tl, text="Времена года", bg=th["side"], fg=th["fg"], font=self.F(12, True)
-        ).pack(anchor="w")
-        tk.Label(
-            tl, text="и гирлянда", bg=th["side"], fg=th["muted"], font=self.F(9)
-        ).pack(anchor="w")
-        self.nav = {}
-        for pid, icon, name, _sub in PAGES:
+        logo.pack(fill="x", padx=18, pady=(20, 14))
+        badge = tk.Canvas(logo, width=int(38 * k), height=int(38 * k), bg=th["side"], highlightthickness=0)
+        badge.pack(side="left")
+        badge.create_oval(2, 2, 36 * k, 36 * k, fill=th["accent"], outline="")
+        badge.create_text(19 * k, 19 * k, text="✦", fill=th["on_acc"], font=self.F(16, True, True))
+        tf = tk.Frame(logo, bg=th["side"])
+        tf.pack(side="left", padx=10)
+        tk.Label(tf, text="AuraDesk", bg=th["side"], fg=th["fg"], font=self.F(14, True)).pack(anchor="w")
+        tk.Label(tf, text="Атмосфера экрана", bg=th["side"], fg=th["muted"], font=self.F(9)).pack(anchor="w")
+
+        search_wrap = tk.Frame(side, bg=th["side"])
+        search_wrap.pack(fill="x", padx=12, pady=(0, 8))
+        search_box = tk.Frame(search_wrap, bg=th["card2"], highlightbackground=th["line"],
+                              highlightthickness=1)
+        search_box.pack(fill="x")
+        tk.Label(search_box, text="⌕", bg=th["card2"], fg=th["muted"],
+                 font=self.F(11, False, True)).pack(side="left", padx=(9, 4), pady=5)
+        self.search_entry = tk.Entry(search_box, bg=th["card2"], fg=th["muted"],
+                                     insertbackground=th["fg"], relief="flat", bd=0,
+                                     font=self.F(9.5))
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=5)
+        self.search_entry.insert(0, "Поиск по настройкам...")
+        self.search_placeholder = True
+        self.search_clear_btn = tk.Label(search_box, text="✕", bg=th["card2"], fg=th["muted"],
+                                         font=self.F(9, True), cursor="hand2")
+        self.search_clear_btn.bind("<Button-1>", self.search_clear)
+        self.search_entry.bind("<FocusIn>", self.search_focus_in)
+        self.search_entry.bind("<FocusOut>", self.search_focus_out)
+        self.search_entry.bind("<KeyRelease>", self.search_update)
+        self.search_entry.bind("<Return>", self.search_choose_first)
+        self.search_entry.bind("<Down>", self.search_focus_results)
+        self.search_entry.bind("<Escape>", self.search_clear)
+        self.search_results_title = tk.Label(search_wrap, text="", bg=th["side"], fg=th["muted"],
+                                             font=self.F(7.5, True), anchor="w")
+        self.search_results_box = tk.Listbox(search_wrap, bg=th["card2"], fg=th["fg"],
+                                             selectbackground=th["accent"],
+                                             selectforeground=th["on_acc"],
+                                             activestyle="none", relief="flat", bd=0,
+                                             highlightbackground=th["line"],
+                                             highlightthickness=1,
+                                             font=self.F(9), height=1)
+        self.search_results_box.bind("<ButtonRelease-1>", self.search_choose)
+        self.search_results_box.bind("<Return>", self.search_choose)
+        self.search_results_box.bind("<Up>", lambda e: self.search_return_to_entry()
+                                     if self.search_results_box.curselection() == (0,) else None)
+        self.search_results_box.bind("<Escape>", self.search_clear)
+
+        self.nav_btns = {}
+        for pid, icon, title, _sub in PAGES:
             row = tk.Frame(side, bg=th["side"], cursor="hand2")
-            row.pack(fill="x", pady=1)
-            bar = tk.Frame(row, bg=th["side"], width=4)
-            bar.pack(side="left", fill="y")
-            lbl = tk.Label(
-                row,
-                text="  %s   %s" % (icon, name),
-                bg=th["side"],
-                fg=th["muted"],
-                font=self.F(11, False, True),
-                anchor="w",
-                padx=10,
-                pady=9,
-            )
-            lbl.pack(side="left", fill="x", expand=True)
-            for w in (row, lbl, bar):
+            row.pack(fill="x", padx=10, pady=2)
+            bar = tk.Frame(row, bg=th["side"], width=int(3 * k))
+            bar.pack(side="left", fill="y", pady=6)
+            ic = tk.Label(row, text=icon, bg=th["side"], fg=th["muted"], font=self.F(12, False, True), width=2)
+            ic.pack(side="left", padx=(6, 4), pady=7)
+            lb = tk.Label(row, text=title, bg=th["side"], fg=th["muted"], font=self.F(10), anchor="w")
+            lb.pack(side="left", fill="x", expand=True)
+            for w in (row, ic, lb):
                 w.bind("<Button-1>", lambda e, p=pid: self.show_page(p))
-            self.nav[pid] = (row, bar, lbl)
-        tk.Label(
-            side,
-            text="Изменения применяются сразу\nи сохраняются сами",
-            bg=th["side"],
-            fg=th["muted"],
-            font=self.F(8),
-            justify="left",
-        ).pack(side="bottom", anchor="w", padx=18, pady=(0, 16))
+            self.nav_btns[pid] = (row, bar, ic, lb)
+
+        tk.Frame(side, bg=th["line"], height=1).pack(fill="x", padx=14, pady=(10, 8))
+        foot = tk.Frame(side, bg=th["side"])
+        foot.pack(fill="x", padx=14, pady=(0, 14), side="bottom")
+        r = tk.Frame(foot, bg=th["side"])
+        r.pack(fill="x", pady=4)
+        tk.Label(r, text="Эффекты", bg=th["side"], fg=th["fg"], font=self.F(10, True)).pack(side="left")
+        t = Toggle(r, th, k, self.effects_on, self.set_effects)
+        t.configure(bg=th["side"])
+        t.pack(side="right")
+        self.ctl["_effects"] = t
+        b = TactileButton(foot, th, k, "Скрыть в трей" if self.tray else "Свернуть",
+                          self.hide if self.tray else self.root.iconify, accent=False, width=190, height=32)
+        b.pack(fill="x", pady=(8, 0))
 
         main = tk.Frame(shell, bg=th["bg"])
         main.pack(side="left", fill="both", expand=True)
         head = tk.Frame(main, bg=th["bg"])
-        head.pack(fill="x", padx=22, pady=(20, 0))
-        hl = tk.Frame(head, bg=th["bg"])
-        hl.pack(side="left")
-        self.title_lbl = tk.Label(
-            hl, text="", bg=th["bg"], fg=th["fg"], font=self.F(20, True)
-        )
-        self.title_lbl.pack(anchor="w")
-        self.sub_lbl = tk.Label(
-            hl, text="", bg=th["bg"], fg=th["muted"], font=self.F(10)
-        )
-        self.sub_lbl.pack(anchor="w")
-        hr = tk.Frame(head, bg=th["bg"])
-        hr.pack(side="right")
-        self.chip = tk.Label(
-            hr,
-            text="",
-            bg=th["accent"],
-            fg=th["on_acc"],
-            padx=12,
-            pady=5,
-            font=self.F(10, True, True),
-        )
-        self.chip.pack(side="left", padx=(0, 14))
-        tk.Label(
-            hr, text="Эффекты", bg=th["bg"], fg=th["muted"], font=self.F(9)
-        ).pack(side="left", padx=(0, 6))
-        hb = tk.Frame(hr, bg=th["card"])
-        hb.pack(side="left")
-        t = Toggle(hb, th, k, self.effects_on, lambda v: self.set_effects(v))
-        t.pack()
-        self.ctl["_effects"] = t
-        self.page_host = tk.Frame(main, bg=th["bg"])
-        self.page_host.pack(fill="both", expand=True, pady=(8, 10))
-        self.show_page(self.cur_page)
+        head.pack(fill="x", padx=28, pady=(20, 10))
+        ht = tk.Frame(head, bg=th["bg"])
+        ht.pack(side="left", fill="x", expand=True)
+        self.h_title = tk.Label(ht, text="", bg=th["bg"], fg=th["fg"], font=self.F(19, True), anchor="w")
+        self.h_title.pack(anchor="w")
+        self.h_sub = tk.Label(ht, text="", bg=th["bg"], fg=th["muted"], font=self.F(10), anchor="w")
+        self.h_sub.pack(anchor="w", pady=(2, 0))
+        self.chip = tk.Label(head, text=SEASON_TITLE[current_season(self.cfg)], bg=th["card"],
+                             fg=th["accent"], font=self.F(10, True, True), padx=14, pady=6)
+        self.chip.pack(side="right")
 
-    def show_page(self, pid):
-        th = self.th
-        self.cur_page = pid
-        for f in self.page_frames.values():
-            f.pack_forget()
-        if pid not in self.page_frames:
-            sf = ScrollFrame(self.page_host, th["bg"])
+        self.stack = tk.Frame(main, bg=th["bg"])
+        self.stack.pack(fill="both", expand=True)
+        for pid, _i, _t, _s in PAGES:
+            sf = ScrollFrame(self.stack, th["bg"])
+            self.page_frames[pid] = sf
             getattr(self, "page_" + pid)(sf.inner)
             tk.Frame(sf.inner, bg=th["bg"], height=24).pack()
-            self.page_frames[pid] = sf
-        self.page_frames[pid].pack(fill="both", expand=True)
-        for p, (row, bar, lbl) in self.nav.items():
-            on = p == pid
-            row.configure(bg=th["card"] if on else th["side"])
-            bar.configure(bg=th["accent"] if on else th["side"])
-            lbl.configure(
-                bg=th["card"] if on else th["side"],
-                fg=th["fg"] if on else th["muted"],
-            )
-        for p, _icon, name, sub in PAGES:
-            if p == pid:
-                self.title_lbl.config(text=name)
-                self.sub_lbl.config(text=sub)
+        self.show_page("home")
 
-    def group(self, parent, title, hint=None):
+    def show_page(self, pid):
+        self.cur_page = pid
+        th = self.th
+        for k2, (row, bar, ic, lb) in self.nav_btns.items():
+            act = k2 == pid
+            bg = th["card2"] if act else th["side"]
+            fg = th["fg"] if act else th["muted"]
+            row.configure(bg=bg)
+            bar.configure(bg=th["accent"] if act else bg)
+            ic.configure(bg=bg, fg=th["accent"] if act else fg)
+            lb.configure(bg=bg, fg=fg, font=self.F(10, act))
+        for k2, sf in self.page_frames.items():
+            if k2 == pid:
+                sf.pack(fill="both", expand=True)
+                sf.canvas.yview_moveto(0)
+            else:
+                sf.pack_forget()
+        for p, _i, title, sub in PAGES:
+            if p == pid:
+                self.h_title.config(text=title)
+                self.h_sub.config(text=sub)
+                break
+
+    # ---- строители строк настроек
+    def section(self, parent, title):
         th = self.th
         outer = tk.Frame(parent, bg=th["bg"])
-        outer.pack(fill="x", padx=22, pady=(14, 0))
-        tk.Label(
-            outer,
-            text=title.upper(),
-            bg=th["bg"],
-            fg=th["muted"],
-            font=self.F(9, True),
-        ).pack(anchor="w", pady=(0, 6))
-        card = tk.Frame(
-            outer,
-            bg=th["card"],
-            highlightthickness=1,
-            highlightbackground=th["line"],
-        )
+        outer.pack(fill="x", padx=28, pady=(14, 0))
+        tk.Label(outer, text=title.upper(), bg=th["bg"], fg=th["muted"],
+                 font=self.F(9, True), anchor="w").pack(anchor="w", pady=(0, 6))
+        card = tk.Frame(outer, bg=th["card"], highlightbackground=th["line"], highlightthickness=1)
         card.pack(fill="x")
-        card.nrows = 0
-        if hint:
-            tk.Label(
-                card,
-                text=hint,
-                bg=th["card"],
-                fg=th["muted"],
-                font=self.F(9),
-                justify="left",
-                anchor="w",
-                wraplength=int(640 * self.k),
-            ).pack(anchor="w", padx=16, pady=(10, 2))
+        card._n = 0
         return card
 
-    def row(self, card, title, desc=None):
+    def _row(self, card, label, desc=None):
         th = self.th
-        if card.nrows:
+        if card._n > 0:
             tk.Frame(card, bg=th["line"], height=1).pack(fill="x", padx=16)
-        card.nrows += 1
-        r = tk.Frame(card, bg=th["card"])
-        r.pack(fill="x", padx=16, pady=9)
-        right = tk.Frame(r, bg=th["card"])
-        right.pack(side="right", padx=(14, 0))
-        left = tk.Frame(r, bg=th["card"])
-        left.pack(side="left", fill="x", expand=True)
-        tk.Label(
-            left,
-            text=title,
-            bg=th["card"],
-            fg=th["fg"],
-            font=self.F(10, True),
-            anchor="w",
-        ).pack(anchor="w")
+        card._n += 1
+        row = tk.Frame(card, bg=th["card"])
+        row.pack(fill="x", padx=18, pady=12)
+        left = tk.Frame(row, bg=th["card"])
+        left.pack(side="left", fill="x", expand=True, padx=(0, 14))
+        tk.Label(left, text=label, bg=th["card"], fg=th["fg"], font=self.F(10.5, True), anchor="w").pack(anchor="w")
         if desc:
-            tk.Label(
-                left,
-                text=desc,
-                bg=th["card"],
-                fg=th["muted"],
-                font=self.F(9),
-                anchor="w",
-                justify="left",
-                wraplength=int(360 * self.k * th["font_k"]),
-            ).pack(anchor="w", pady=(2, 0))
-        return right
+            tk.Label(left, text=desc, bg=th["card"], fg=th["muted"], font=self.F(9),
+                     anchor="w", wraplength=int(480 * self.k), justify="left").pack(anchor="w", pady=(2, 0))
+        return row
 
-    def tog(self, card, key, title, desc=None):
-        right = self.row(card, title, desc)
-        t = Toggle(
-            right,
-            self.th,
-            self.k,
-            self.cfg[key],
-            lambda v, key=key: self.set_cfg(key, v),
-        )
-        t.pack()
+    def toggle(self, card, key, label, desc=None, getter=None, setter=None):
+        row = self._row(card, label, desc)
+        v = getter() if getter else self.cfg[key]
+        cb = setter if setter else (lambda val, k2=key: self.set_cfg(k2, val))
+        t = Toggle(row, self.th, self.k, v, cb)
+        t.pack(side="right")
         self.ctl[key] = t
 
-    def sld(self, card, key, lo, hi, step, title, desc=None):
-        right = self.row(card, title, desc)
-        s = Slider(
-            right,
-            self.th,
-            self.k,
-            lo,
-            hi,
-            step,
-            self.cfg[key],
-            lambda v, key=key: self.set_cfg(key, v),
-        )
-        s.pack()
+    def slider(self, card, key, label, lo, hi, step=1, desc=None):
+        row = self._row(card, label, desc)
+        s = Slider(row, self.th, self.k, lo, hi, step, self.cfg[key],
+                   lambda val, k2=key: self.set_cfg(k2, val))
+        s.pack(side="right")
         self.ctl[key] = s
 
-    def drop(self, card, key, values, title, desc=None):
-        right = self.row(card, title, desc)
-        d = Drop(
-            right,
-            values,
-            self.cfg[key],
-            lambda v, key=key: self.set_cfg(key, v),
-            self.F(10),
-        )
-        d.pack()
+    def drop(self, card, key, label, values, desc=None):
+        row = self._row(card, label, desc)
+        d = Drop(row, values, self.cfg[key], lambda val, k2=key: self.set_cfg(k2, val), self.F(10))
+        d.pack(side="right")
         self.ctl[key] = d
 
-    def col(self, card, key, title, desc=None):
-        right = self.row(card, title, desc)
-        s = Swatch(
-            right, self.cfg[key], lambda v, key=key: self.set_cfg(key, v)
-        )
-        s.pack()
+    def color(self, card, key, label, desc=None):
+        row = self._row(card, label, desc)
+        s = Swatch(row, self.cfg[key], lambda val, k2=key: self.set_cfg(k2, val))
+        s.pack(side="right", ipady=3)
         self.ctl[key] = s
 
-    def btn(self, card, text, cmd, accent=False):
-        th = self.th
-        b = tk.Button(
-            card,
-            text=text,
-            command=cmd,
-            relief="flat",
-            bd=0,
-            cursor="hand2",
-            bg=th["accent"] if accent else th["card2"],
-            fg=th["on_acc"] if accent else th["fg"],
-            activebackground=th["accent2"] if accent else th["line"],
-            activeforeground=th["fg"],
-            font=self.F(10, True),
-            padx=14,
-            pady=8,
-        )
-        b.pack(fill="x", padx=16, pady=(8, 10))
-        return b
+    def buttons(self, card, items):
+        row = tk.Frame(card, bg=self.th["card"])
+        row.pack(fill="x", padx=18, pady=12)
+        for text, fn, acc in items:
+            b = TactileButton(row, self.th, self.k, text, fn, accent=acc, height=34)
+            b.pack(side="left", padx=(0, 10))
 
-    def call(self, name, *a):
-        self.ov.send("call", name, *a)
-
+    # ---- страницы
     def page_home(self, p):
         th, k = self.th, self.k
-        hero = tk.Canvas(p, height=int(112 * k), bg=th["bg"], highlightthickness=0)
-        hero.pack(fill="x", padx=22, pady=(10, 0))
+        c = self.section(p, "Время года")
+        self.drop(c, "season", "Сезон", ["Авто", "Зима", "Весна", "Лето", "Осень"],
+                  "В режиме «Авто» время года определяется по календарю само.")
+        self.drop(c, "fall_mode", "Что падает", ["По сезону", "Свой набор"],
+                  "Свой набор позволяет смешивать любые частицы во вкладке «Осадки».")
 
-        def draw(_e=None):
-            w = max(10, hero.winfo_width())
-            hero.delete("all")
-            n = 48
-            for i in range(n):
-                hero.create_rectangle(
-                    w * i / n,
-                    0,
-                    w * (i + 1) / n + 1,
-                    112 * k,
-                    fill=mix(th["accent"], th["accent2"], i / float(n - 1)),
-                    outline="",
-                )
-            hero.create_text(
-                26 * k,
-                40 * k,
-                anchor="w",
-                text="Рабочий стол оживает",
-                fill="#FFFFFF",
-                font=self.F(20, True),
-            )
-            hero.create_text(
-                26 * k,
-                76 * k,
-                anchor="w",
-                fill="#F6F1FF",
-                font=self.F(10),
-                text="Выберите режим ниже или настройте всё по отдельности в меню слева.",
-            )
+        wrap = tk.Frame(p, bg=th["bg"])
+        wrap.pack(fill="x", padx=28, pady=(16, 0))
+        tk.Label(wrap, text="ГОТОВЫЕ РЕЖИМЫ", bg=th["bg"], fg=th["muted"],
+                 font=self.F(9, True), anchor="w").pack(anchor="w", pady=(0, 8))
+        grid = tk.Frame(wrap, bg=th["bg"])
+        grid.pack(fill="x")
+        for c2 in range(3):
+            grid.grid_columnconfigure(c2, weight=1, uniform="pr")
+        for idx, (pid, icon, name, desc, _ov) in enumerate(PRESETS):
+            r, col = divmod(idx, 3)
+            card = tk.Frame(grid, bg=th["card"], highlightbackground=th["line"],
+                            highlightthickness=1, cursor="hand2")
+            card.grid(row=r, column=col, sticky="nsew", padx=(0 if col == 0 else 7, 0 if col == 2 else 7),
+                      pady=(0 if r == 0 else 7, 7))
+            top = tk.Frame(card, bg=th["card"])
+            top.pack(fill="x", padx=14, pady=(12, 4))
+            ic = tk.Label(top, text=icon, bg=th["card2"], fg=th["accent"], font=self.F(13, True, True),
+                          width=3, pady=3)
+            ic.pack(side="left")
+            nm = tk.Label(top, text=name, bg=th["card"], fg=th["fg"], font=self.F(10.5, True), anchor="w")
+            nm.pack(side="left", padx=9)
+            ds = tk.Label(card, text=desc, bg=th["card"], fg=th["muted"], font=self.F(8.5), anchor="w",
+                          justify="left", wraplength=int(215 * k))
+            ds.pack(fill="x", padx=14, pady=(0, 12))
+            for w in (card, top, ic, nm, ds):
+                w.bind("<Button-1>", lambda e, x=pid: self.apply_preset(x))
 
-        hero.bind("<Configure>", draw)
-        g = self.group(p, "Главное")
-        self.tog(
-            g,
-            "desktop_only",
-            "Эффекты только на рабочем столе",
-            "Снег, звёзды, сияние и прочее рисуются под окнами. Гирлянда, сугробы и снеговики остаются на окнах.",
-        )
-        self.tog(
-            g,
-            "pause_fullscreen",
-            "Пауза в играх и видео",
-            "Когда что-то открыто на весь экран, программа ничего не рисует и не нагружает компьютер.",
-        )
-        g = self.group(
-            p,
-            "Готовые режимы",
-            "Режим меняет настройки эффектов. Внешний вид программы и производительность не трогает.",
-        )
-        grid = tk.Frame(g, bg=th["card"])
-        grid.pack(fill="x", padx=12, pady=10)
-        grid.columnconfigure(0, weight=1, uniform="c")
-        grid.columnconfigure(1, weight=1, uniform="c")
-        for n, (pid, icon, name, desc, _o) in enumerate(PRESETS):
-            c = tk.Frame(
-                grid,
-                bg=th["card2"],
-                highlightthickness=1,
-                highlightbackground=th["line"],
-            )
-            c.grid(row=n // 2, column=n % 2, sticky="nsew", padx=6, pady=6)
-            tk.Label(
-                c,
-                text="%s  %s" % (icon, name),
-                bg=th["card2"],
-                fg=th["fg"],
-                font=self.F(12, True, True),
-                anchor="w",
-            ).pack(anchor="w", padx=14, pady=(12, 2))
-            tk.Label(
-                c,
-                text=desc,
-                bg=th["card2"],
-                fg=th["muted"],
-                font=self.F(9),
-                justify="left",
-                anchor="w",
-                wraplength=int(250 * k * th["font_k"]),
-            ).pack(anchor="w", padx=14)
-            tk.Button(
-                c,
-                text="Включить",
-                command=lambda pid=pid: self.apply_preset(pid),
-                relief="flat",
-                bd=0,
-                cursor="hand2",
-                bg=th["accent"],
-                fg=th["on_acc"],
-                activebackground=th["accent2"],
-                font=self.F(9, True),
-                padx=12,
-                pady=5,
-            ).pack(anchor="w", padx=14, pady=(8, 12))
+    def page_forecast(self, p):
+        th, k = self.th, self.k
+        # Панель поиска города
+        search_card = self.section(p, "Ваш город")
+        bar = tk.Frame(search_card, bg=th["card"])
+        bar.pack(fill="x", padx=18, pady=14)
+
+        entry_box = tk.Frame(bar, bg=th["card2"], highlightbackground=th["line"], highlightthickness=1)
+        entry_box.pack(side="left", fill="x", expand=True, padx=(0, 12))
+        city_var = tk.StringVar(value=self.cfg.get("weather_city", "Днепр"))
+        ent = tk.Entry(entry_box, textvariable=city_var, bg=th["card2"], fg=th["fg"],
+                       insertbackground=th["fg"], relief="flat", bd=0, font=self.F(11))
+        ent.pack(fill="x", padx=12, pady=8)
+        ent.bind("<Return>", lambda _e: self.load_weather_async(city_var.get()))
+
+        btn_find = TactileButton(bar, th, k, "Показать погоду",
+                                 lambda: self.load_weather_async(city_var.get()),
+                                 accent=True, width=165, height=36)
+        btn_find.pack(side="right")
+
+        # Быстрый выбор популярных городов
+        quick = tk.Frame(search_card, bg=th["card"])
+        quick.pack(fill="x", padx=18, pady=(0, 12))
+        tk.Label(quick, text="Быстрый выбор:", bg=th["card"], fg=th["muted"], font=self.F(9)).pack(side="left", padx=(0, 8))
+        for cname in ("Днепр", "Киев", "Львов", "Одесса", "Харьков"):
+            qb = TactileButton(quick, th, k, cname,
+                               lambda c=cname: (city_var.set(c), self.load_weather_async(c)),
+                               accent=False, width=82, height=28)
+            qb.pack(side="left", padx=3)
+
+        if self.weather_loading:
+            box = self.section(p, "Загрузка")
+            tk.Label(box, text="Получаем прогноз погоды на неделю...", bg=th["card"], fg=th["accent"],
+                     font=self.F(11, True), pady=24).pack()
+            return
+
+        if self.weather_error:
+            box = self.section(p, "Ошибка")
+            tk.Label(box, text=self.weather_error, bg=th["card"], fg="#F43F5E",
+                     font=self.F(10.5, True), pady=20).pack()
+            return
+
+        if not self.weather_data:
+            box = self.section(p, "Прогноз на неделю")
+            tk.Label(box, text="Введите название вашего города сверху, чтобы увидеть погоду на 7 дней.",
+                     bg=th["card"], fg=th["muted"], font=self.F(10), pady=22).pack()
+            return
+
+        d = self.weather_data
+        # Текущая погода
+        now_card = self.section(p, f"Сейчас · {d['city']}" + (f" ({d['region']})" if d["region"] else ""))
+        top = tk.Frame(now_card, bg=th["card"])
+        top.pack(fill="x", padx=20, pady=16)
+
+        big_icon = WeatherAnimIcon(top, th["card"], d["kind"], d["color"], size=int(72 * k))
+        big_icon.pack(side="left")
+        self.weather_icons.append(big_icon)
+
+        info = tk.Frame(top, bg=th["card"])
+        info.pack(side="left", padx=16)
+        temp_str = f"{'+' if d['temp'] > 0 else ''}{d['temp']}°C"
+        tk.Label(info, text=f"{temp_str}   {d['label']}", bg=th["card"], fg=th["fg"],
+                 font=self.F(18, True)).pack(anchor="w")
+        feels_str = f"{'+' if d['feels'] > 0 else ''}{d['feels']}°C"
+        tk.Label(info, text=f"Ощущается как {feels_str}  ·  Ветер {d['wind']} км/ч  ·  Влажность {d['humidity']}%",
+                 bg=th["card"], fg=th["muted"], font=self.F(9.5)).pack(anchor="w", pady=(4, 0))
+
+        sync_btn = TactileButton(top, th, k, "Включить эту погоду на экране",
+                                 self.sync_weather_to_desktop, accent=True, width=225, height=38)
+        sync_btn.pack(side="right")
+
+        # Прогноз на 7 дней
+        week_wrap = tk.Frame(p, bg=th["bg"])
+        week_wrap.pack(fill="x", padx=28, pady=(16, 0))
+        tk.Label(week_wrap, text="ПРОГНОЗ НА НЕДЕЛЮ (7 ДНЕЙ)", bg=th["bg"], fg=th["muted"],
+                 font=self.F(9, True), anchor="w").pack(anchor="w", pady=(0, 8))
+
+        grid = tk.Frame(week_wrap, bg=th["bg"])
+        grid.pack(fill="x")
+        days = d["days"]
+        for i in range(len(days)):
+            grid.grid_columnconfigure(i, weight=1, uniform="wday")
+
+        for i, day in enumerate(days):
+            card = tk.Frame(grid, bg=th["card"], highlightbackground=th["accent"] if i == 0 else th["line"],
+                            highlightthickness=1)
+            card.grid(row=0, column=i, sticky="nsew",
+                      padx=(0 if i == 0 else 4, 0 if i == len(days) - 1 else 4))
+
+            tk.Label(card, text=day["weekday"], bg=th["card"],
+                     fg=th["accent"] if i == 0 else th["fg"],
+                     font=self.F(10, True)).pack(pady=(10, 0))
+            tk.Label(card, text=day["date"], bg=th["card"], fg=th["muted"],
+                     font=self.F(8.5)).pack()
+
+            ic = WeatherAnimIcon(card, th["card"], day["kind"], day["color"], size=int(54 * k))
+            ic.pack(pady=4)
+            self.weather_icons.append(ic)
+
+            tk.Label(card, text=day["label"], bg=th["card"], fg=th["fg"],
+                     font=self.F(8.5), wraplength=int(95 * k), justify="center", height=2).pack(padx=4)
+
+            tmax_s = f"{'+' if day['tmax'] > 0 else ''}{day['tmax']}°"
+            tmin_s = f"{'+' if day['tmin'] > 0 else ''}{day['tmin']}°"
+            tk.Label(card, text=f"{tmax_s} / {tmin_s}", bg=th["card"], fg=th["fg"],
+                     font=self.F(10, True)).pack(pady=(4, 2))
+
+            pop_col = "#38BDF8" if day["pop"] >= 40 else th["muted"]
+            tk.Label(card, text=f"Осадки: {day['pop']}%", bg=th["card"], fg=pop_col,
+                     font=self.F(8)).pack(pady=(0, 10))
 
     def page_fall(self, p):
-        g = self.group(p, "Что падает")
-        self.drop(
-            g,
-            "season",
-            ["Авто", "Зима", "Осень", "Весна", "Лето"],
-            "Время года",
-            "«Авто» — по дате на вашем компьютере.",
-        )
-        self.drop(
-            g,
-            "fall_mode",
-            ["По сезону", "Свой набор"],
-            "Режим",
-            "«По сезону» — зимой снег, осенью листья и т. д. «Свой набор» — выберете сами, можно всё сразу.",
-        )
-        g = self.group(p, "Свой набор", "Работает, когда выше выбран режим «Свой набор».")
-        for kid, label in KINDS:
-            self.tog(g, "k_" + kid, label)
-        g = self.group(p, "Снег")
-        self.drop(
-            g,
-            "snow_style",
-            ["Все вместе", "Звёздочки ❄", "Хлопья ❅", "Кристаллы ❆", "Точки"],
-            "Вид снежинок",
-            "Какие снежинки падают: все сразу или только один вид.",
-        )
-        self.col(g, "snow_color", "Цвет снега")
-        g = self.group(p, "Количество и скорость")
-        self.sld(
-            g,
-            "density",
-            0,
-            600,
-            10,
-            "Сколько частиц",
-            "Чем меньше — тем меньше нагрузка на компьютер.",
-        )
-        self.sld(g, "speed", 0.1, 4.0, 0.1, "Скорость падения")
-        self.sld(g, "size", 2, 14, 1, "Размер")
-        self.sld(
-            g,
-            "wobble",
-            0.0,
-            4.0,
-            0.1,
-            "Покачивание",
-            "Как сильно частицы виляют из стороны в сторону.",
-        )
+        c = self.section(p, "Количество и скорость")
+        self.slider(c, "density", "Количество частиц", 20, 480, 10,
+                    "Теперь доступно до 480 снежинок для настоящего густого снегопада.")
+        self.slider(c, "speed", "Скорость падения", 0.2, 3.0, 0.1)
+        self.slider(c, "size", "Размер", 2, 14, 1)
+        self.slider(c, "wobble", "Покачивание", 0.0, 3.0, 0.1)
+        self.toggle(c, "desktop_only", "Только на рабочем столе",
+                    "Скрывать падающие частицы за окнами, оставляя их на обоях. "
+                    "Гирлянда сверху и сугробы на окнах всё равно видны.")
+        c2 = self.section(p, "Снег")
+        self.drop(c2, "snow_style", "Форма снежинок",
+                  ["Все вместе", "Точки", "Звёздочки ❄", "Хлопья ❅", "Кристаллы ❆"])
+        self.color(c2, "snow_color", "Цвет снега")
+        c3 = self.section(p, "Свой набор")
+        self.drop(c3, "fall_mode", "Режим", ["По сезону", "Свой набор"])
+        for k2, label in KINDS:
+            self.toggle(c3, "k_" + k2, label)
 
     def page_weather(self, p):
-        g = self.group(p, "Ветер")
-        self.drop(
-            g,
-            "wind_dir",
-            ["Вправо", "Влево", "Меняется"],
-            "Куда дует ветер",
-            "«Меняется» — ветер плавно разворачивается то в одну, то в другую сторону.",
-        )
-        self.sld(g, "wind_power", 0.0, 5.0, 0.1, "Сила ветра")
-        self.sld(g, "gust_power", 0.0, 3.0, 0.1, "Порывы", "Ветер то усиливается, то стихает.")
-        self.sld(g, "gust_speed", 0.2, 3.0, 0.1, "Как часто порывы")
-        g = self.group(p, "Метель")
-        self.sld(
-            g,
-            "blizzard_every",
-            0,
-            60,
-            1,
-            "Метель каждые N минут",
-            "0 — метели не будет.",
-        )
-        self.sld(g, "blizzard_len", 5, 120, 5, "Сколько длится, сек")
-        self.sld(g, "blizzard_power", 0.5, 3.0, 0.1, "Сила метели")
-        self.btn(g, "Запустить метель сейчас", lambda: self.call("start_blizzard"), True)
+        c = self.section(p, "Ветер")
+        self.drop(c, "wind_dir", "Направление", ["Вправо", "Влево", "Меняется"])
+        self.slider(c, "wind_power", "Сила ветра", 0.0, 5.0, 0.1)
+        self.slider(c, "gust_power", "Порывы", 0.0, 3.0, 0.1)
+        self.slider(c, "gust_speed", "Частота порывов", 0.2, 3.0, 0.1)
+        c2 = self.section(p, "Метель")
+        self.slider(c2, "blizzard_every", "Каждые N минут (0 — выкл.)", 0, 30, 1)
+        self.slider(c2, "blizzard_len", "Длительность (секунды)", 10, 90, 5)
+        self.slider(c2, "blizzard_power", "Сила метели", 0.5, 3.0, 0.1)
+        self.buttons(c2, [("Запустить метель", lambda: self.ov.send("call", "start_blizzard"), True)])
 
     def page_garland(self, p):
-        g = self.group(p, "Гирлянда на окнах")
-        self.tog(
-            g,
-            "garland_enabled",
-            "Включить гирлянду",
-            "Вешается на верхний край каждого открытого окна.",
-        )
-        self.tog(g, "garland_winter_only", "Только зимой")
-        self.tog(g, "skip_maximized", "Не вешать на развёрнутые окна")
-        self.tog(g, "garland_top", "Ещё и вдоль верхнего края экрана")
-        g = self.group(p, "Вид")
-        self.drop(
-            g,
-            "garland_style",
-            [
-                "Авто (по сезону)",
-                "Лампочки",
-                "Сосульки",
-                "Шарики",
-                "Звёзды",
-                "Фонарики",
-                "Флажки",
-                "Листья",
-                "Цветы",
-                "Микс",
-            ],
-            "Украшения",
-            "«Авто» — зимой лампочки, осенью листья, весной цветы, летом флажки.",
-        )
-        self.sld(g, "garland_glow", 1, 3, 1, "Яркость свечения")
-        self.sld(g, "garland_arc", 80, 600, 10, "Длина дуги")
-        self.sld(g, "garland_sag", 0, 100, 1, "Провисание")
-        self.sld(g, "garland_gap", 16, 120, 2, "Расстояние между украшениями")
-        self.sld(g, "bulb_size", 2, 14, 1, "Размер украшений")
-        self.sld(g, "garland_width", 1, 6, 1, "Толщина провода")
-        self.col(g, "garland_wire", "Цвет провода")
-        right = self.row(g, "Цвета огоньков", "Четыре цвета, которые чередуются.")
-        for key in ("color1", "color2", "color3", "color4"):
-            s = Swatch(
-                right, self.cfg[key], lambda v, key=key: self.set_cfg(key, v)
-            )
-            s.pack(side="left", padx=3)
-            self.ctl[key] = s
-        g = self.group(p, "Мигание")
-        self.drop(
-            g,
-            "blink_mode",
-            ["Бегущая волна", "Мигание", "Постоянно"],
-            "Режим",
-        )
-        self.sld(g, "blink_speed", 0.2, 10.0, 0.2, "Скорость")
+        c = self.section(p, "Гирлянда на верхнем крае экрана")
+        self.toggle(c, "garland_enabled", "Показывать гирлянду",
+                    "Гирлянда располагается аккуратно вдоль верхнего края монитора.")
+        self.toggle(c, "garland_winter_only", "Только зимой")
+        self.drop(c, "garland_style", "Вид",
+                  ["Авто (по сезону)"] + list(GARLAND_STYLES))
+        self.drop(c, "blink_mode", "Свечение", ["Бегущая волна", "Мигание", "Постоянно"])
+        self.slider(c, "blink_speed", "Скорость свечения", 0.5, 8.0, 0.5)
+        self.slider(c, "garland_glow", "Яркость ореола", 1, 3, 1)
+        c2 = self.section(p, "Форма и цвета")
+        self.slider(c2, "garland_arc", "Ширина дуги", 120, 420, 10)
+        self.slider(c2, "garland_sag", "Провис", 10, 60, 2)
+        self.slider(c2, "garland_gap", "Шаг украшений", 22, 90, 2)
+        self.slider(c2, "bulb_size", "Размер", 3, 9, 1)
+        self.slider(c2, "garland_width", "Толщина провода", 1, 5, 1)
+        self.color(c2, "garland_wire", "Цвет провода")
+        for i in range(1, 5):
+            self.color(c2, "color%d" % i, "Цвет %d" % i)
 
     def page_snow(self, p):
-        g = self.group(p, "Сугробы")
-        self.tog(
-            g,
-            "pile_enabled",
-            "Снег и листья оседают на окнах",
-            "Копятся на верхних краях окон и над панелью задач. Окно закрыли или быстро двинули — сугроб осыпается.",
-        )
-        self.sld(g, "pile_max", 4, 40, 1, "Высота сугроба")
-        self.sld(g, "pile_rate", 0.2, 6.0, 0.2, "Как быстро копится")
-        g = self.group(p, "Снеговики")
-        self.tog(g, "roll_enabled", "Разрешить лепить и переносить")
-        self.drop(g, "roll_key", ["Ctrl", "Shift"], "Клавиша", "Её нужно держать зажатой.")
-        self.sld(g, "snowman_size", 0.6, 2.0, 0.1, "Размер снеговика")
-        self.sld(g, "snowman_max", 1, 15, 1, "Сколько снеговиков может быть")
-        self.sld(
-            g,
-            "snowman_melt",
-            0,
-            60,
-            1,
-            "Тают через N минут",
-            "0 — не тают. Перед концом снеговик уменьшается.",
-        )
-        self.hint(
-            g,
-            "Как лепить: наведите курсор на сугроб, зажмите клавишу и ведите курсор вдоль сугроба — "
-            "катится снежный ком и растёт. Когда ком достиг полного размера, у него появится "
-            "голубая обводка — отпустите клавишу, и он станет снеговиком. "
-            "Закатите туда же ещё ком — добавится средний шар с пуговицами и ветками, "
-            "ещё один — голова со шляпой и морковкой. "
-            "Зажмите клавишу на готовом снеговике — можно перенести его в другое место.",
-        )
-        g = self.group(p, "Уборочная машина")
-        self.sld(
-            g,
-            "plow_every",
-            0,
-            60,
-            1,
-            "Выезжает каждые N минут",
-            "0 — сама не выезжает.",
-        )
-        self.sld(g, "plow_speed", 1, 10, 1, "Скорость")
-        self.btn(g, "Вызвать машину сейчас", lambda: self.call("start_plow"), True)
-        g = self.group(p, "Уборка")
-        self.btn(g, "Убрать все сугробы", lambda: self.call("clear_snow"))
-        self.btn(g, "Убрать всех снеговиков", lambda: self.call("clear_snowmen"))
-
-    def hint(self, card, text):
-        th = self.th
-        if card.nrows:
-            tk.Frame(card, bg=th["line"], height=1).pack(fill="x", padx=16)
-        tk.Label(
-            card,
-            text=text,
-            bg=th["card"],
-            fg=th["muted"],
-            font=self.F(9),
-            justify="left",
-            anchor="w",
-            wraplength=int(640 * self.k),
-        ).pack(anchor="w", padx=16, pady=(8, 10))
+        c = self.section(p, "Сугробы")
+        self.toggle(c, "pile_enabled", "Накапливать снег на окнах и панели задач")
+        self.slider(c, "pile_max", "Максимальная высота", 6, 40, 1)
+        self.slider(c, "pile_rate", "Скорость накопления", 0.2, 3.0, 0.1)
+        self.buttons(c, [("Убрать сугробы", lambda: self.ov.send("call", "clear_snow"), False)])
+        c2 = self.section(p, "Снегоуборочная машина")
+        self.slider(c2, "plow_every", "Выезжать каждые N минут (0 — выкл.)", 0, 30, 1)
+        self.slider(c2, "plow_speed", "Скорость", 1, 10, 1)
+        self.buttons(c2, [("Запустить сейчас", lambda: self.ov.send("call", "start_plow"), True)])
+        c3 = self.section(p, "Снеговики")
+        self.toggle(c3, "roll_enabled", "Лепка снеговиков",
+                    "Зажмите клавишу на сугробе и проведите мышью в стороны — скатается снежный ком. "
+                    "Отпустите на поверхности; три кома друг на друге дадут снеговика.")
+        self.drop(c3, "roll_key", "Клавиша", ["Ctrl", "Shift"])
+        self.slider(c3, "snowman_size", "Размер", 0.6, 1.8, 0.1)
+        self.slider(c3, "snowman_max", "Максимум на экране", 1, 15, 1)
+        self.slider(c3, "snowman_melt", "Таяние, минут (0 — не тают)", 0, 60, 1)
+        self.buttons(c3, [("Убрать снеговиков", lambda: self.ov.send("call", "clear_snowmen"), False)])
 
     def page_sky(self, p):
-        g = self.group(p, "Северное сияние")
-        self.tog(g, "aurora_enabled", "Включить сияние")
-        self.drop(g, "aurora_when", ["Всегда", "Только зимой"], "Когда показывать")
-        self.drop(
-            g,
-            "aurora_palette",
-            ["Зелёное", "Фиолетовое", "Розовое", "Радужное"],
-            "Цвет",
-        )
-        self.sld(g, "aurora_height", 10, 60, 2, "Высота, % экрана")
-        self.sld(g, "aurora_speed", 0.2, 3.0, 0.2, "Скорость")
-        self.sld(g, "aurora_power", 1, 3, 1, "Яркость")
-        g = self.group(p, "Звёзды и метеоры")
-        self.tog(g, "stars_enabled", "Звёзды")
-        self.sld(g, "stars_count", 20, 300, 10, "Сколько звёзд")
-        self.sld(g, "stars_height", 10, 100, 5, "До какой высоты, % экрана")
-        self.sld(g, "stars_twinkle", 0.2, 4.0, 0.2, "Мерцание")
-        self.tog(g, "meteor_enabled", "Падающие звёзды (метеоры)")
-        self.sld(g, "meteor_every", 2, 60, 1, "Раз в N секунд")
-        self.sld(g, "meteor_len", 0.4, 3.0, 0.2, "Длина следа")
-        g = self.group(p, "Солнце или луна")
-        self.drop(
-            g,
-            "sky_body",
-            ["Выкл", "Луна", "Солнце", "Авто"],
-            "Что показывать",
-            "«Авто» — днём солнце, вечером и ночью луна.",
-        )
-        self.drop(
-            g,
-            "sky_phase",
-            ["Авто", "Полная", "Растущая", "Убывающая"],
-            "Фаза луны",
-            "«Авто» — по реальному лунному календарю.",
-        )
-        self.drop(g, "sky_corner", ["Правый верх", "Левый верх"], "Угол")
-        self.sld(g, "sky_size", 30, 160, 5, "Размер")
-        g = self.group(p, "Облака")
-        self.tog(g, "clouds_enabled", "Плывущие облака")
-        self.sld(g, "clouds_count", 1, 12, 1, "Сколько облаков")
-        self.sld(g, "clouds_speed", 0.2, 4.0, 0.2, "Скорость")
-        self.drop(
-            g,
-            "clouds_tint",
-            ["Белые", "Серые (пасмурно)", "Закат (розовые)"],
-            "Цвет",
-        )
-        self.sld(g, "clouds_height", 10, 70, 5, "Полоса вверху, % экрана")
-        g = self.group(p, "Птицы и бабочки")
-        self.drop(
-            g,
-            "birds_mode",
-            ["Выкл", "Авто", "Птицы", "Бабочки"],
-            "Кто летает",
-            "«Авто» — летом бабочки, в остальное время птицы.",
-        )
-        self.sld(g, "birds_count", 1, 30, 1, "Сколько")
-        self.sld(g, "birds_size", 50, 200, 10, "Размер, %")
-        self.sld(g, "birds_speed", 0.3, 3.0, 0.1, "Скорость")
+        c = self.section(p, "Северное сияние")
+        self.toggle(c, "aurora_enabled", "Показывать сияние")
+        self.drop(c, "aurora_when", "Когда", ["Только зимой", "Всегда"])
+        self.drop(c, "aurora_palette", "Цвет", list(AURORA_PAL))
+        self.slider(c, "aurora_height", "Высота от экрана (%)", 15, 65, 1)
+        self.slider(c, "aurora_speed", "Скорость переливов", 0.3, 3.0, 0.1)
+        self.slider(c, "aurora_power", "Яркость", 1, 3, 1)
+
+        c2 = self.section(p, "Звёздное небо")
+        self.toggle(c2, "stars_enabled", "Мерцающие 4-лучевые звёзды и падающие звёзды")
+        self.slider(c2, "stars_count", "Количество", 20, 260, 10)
+        self.slider(c2, "stars_height", "Область сверху (%)", 20, 100, 5)
+        self.slider(c2, "stars_twinkle", "Скорость мерцания", 0.3, 3.0, 0.1)
+
+        c3 = self.section(p, "Солнце и луна")
+        self.drop(c3, "sky_body", "Показывать", ["Выкл", "Авто", "Солнце", "Луна"])
+        self.drop(c3, "sky_phase", "Фаза луны", ["Авто", "Полная", "Растущая", "Убывающая"])
+        self.drop(c3, "sky_corner", "Угол экрана", ["Правый верх", "Левый верх"])
+        self.slider(c3, "sky_size", "Размер", 40, 140, 5)
+
+        c4 = self.section(p, "Облака")
+        self.toggle(c4, "clouds_enabled", "Большие объёмные облака")
+        self.slider(c4, "clouds_count", "Количество", 2, 18, 1)
+        self.slider(c4, "clouds_speed", "Скорость", 0.2, 3.0, 0.1)
+        self.drop(c4, "clouds_tint", "Оттенок", ["Белые", "Серые (пасмурно)", "Закат (розовые)"])
+        self.slider(c4, "clouds_height", "Высота области (%)", 15, 60, 5)
+
+        c5 = self.section(p, "Птицы и бабочки")
+        self.drop(c5, "birds_mode", "Показывать", ["Выкл", "По сезону", "Птицы", "Бабочки"])
+        self.slider(c5, "birds_count", "Количество", 3, 25, 1)
+        self.slider(c5, "birds_size", "Размер (%)", 60, 160, 10)
+        self.slider(c5, "birds_speed", "Скорость", 0.3, 3.0, 0.1)
+
+        c6 = self.section(p, "Метеоры")
+        self.toggle(c6, "meteor_enabled", "Яркие падающие метеоры с хвостом и искрами")
+        self.slider(c6, "meteor_every", "Каждые N секунд", 2, 30, 1)
+        self.slider(c6, "meteor_len", "Длина хвоста", 0.5, 2.5, 0.1)
+        self.buttons(c6, [("Запустить метеор", lambda: self.ov.send("call", "spawn_meteor"), True)])
 
     def page_party(self, p):
-        g = self.group(p, "На каком мониторе виджеты", "Для ёлки, солнца/луны и отсчёта.")
-        self.drop(g, "widget_monitor", ["Правый", "Левый", "Главный"], "Монитор")
-        g = self.group(p, "Дед Мороз на санях")
-        self.tog(g, "santa_enabled", "Пролетает время от времени")
-        self.sld(g, "santa_every", 1, 30, 1, "Раз в N минут")
-        self.sld(g, "santa_size", 40, 200, 10, "Размер, %")
-        self.sld(g, "santa_speed", 1, 12, 1, "Скорость")
-        self.sld(g, "santa_height", 5, 70, 5, "Высота, % экрана")
-        self.tog(g, "santa_gifts", "Сбрасывает подарки (их можно складывать на окна)")
-        self.btn(g, "Пролететь сейчас", lambda: self.call("start_santa"), True)
-        g = self.group(p, "Новогодняя ёлка")
-        self.tog(g, "tree_enabled", "Поставить ёлку на рабочий стол")
-        self.drop(g, "tree_side", ["Справа", "Слева", "По центру"], "Где стоит")
-        self.sld(g, "tree_size", 40, 200, 10, "Размер, %")
-        self.sld(g, "tree_margin", 0, 400, 10, "Отступ от края")
-        self.sld(g, "tree_lift", 0, 400, 10, "Приподнять от низа")
-        g = self.group(p, "Фейерверки")
-        self.tog(g, "fw_enabled", "Салюты в небе")
-        self.sld(g, "fw_every", 2, 60, 1, "Раз в N секунд")
-        self.sld(g, "fw_size", 0.5, 2.0, 0.1, "Размер")
-        self.btn(
-            g,
-            "Запустить салют сейчас",
-            lambda: self.call(
-                "firework_burst",
-                random.uniform(0.2, 0.8) * self.ov.engine.W,
-                random.uniform(0.15, 0.45) * self.ov.engine.H,
-                random.choice(FW_COL),
-            ),
-            True,
-        )
-        g = self.group(p, "Отсчёт до праздника")
-        self.tog(g, "count_enabled", "Показывать таймер")
-        self.drop(
-            g,
-            "count_target",
-            ["Новый год", "Рождество", "Своя дата"],
-            "До какого события",
-        )
-        self.sld(g, "count_month", 1, 12, 1, "Месяц (для своей даты)")
-        self.sld(g, "count_day", 1, 31, 1, "День (для своей даты)")
-        self.drop(
-            g,
-            "count_corner",
-            ["Левый верх", "Правый верх", "Левый низ", "Правый низ"],
-            "Угол",
-        )
-        self.sld(g, "count_size", 50, 250, 10, "Размер, %")
-        self.col(g, "count_color", "Цвет текста")
-        self.tog(g, "count_seconds", "Показывать секунды")
-        g = self.group(p, "Подсветка и неон")
-        self.tog(g, "strip_enabled", "Лента по краю монитора")
-        self.drop(
-            g,
-            "strip_mode",
-            ["Радуга", "Тёплый", "Холодный", "По сезону", "Свой цвет"],
-            "Цвет ленты",
-        )
-        self.col(g, "strip_color", "Свой цвет ленты")
-        self.sld(g, "strip_width", 2, 12, 1, "Толщина ленты")
-        self.sld(g, "strip_speed", 0.2, 4.0, 0.2, "Скорость")
-        self.tog(g, "neon_enabled", "Неоновая рамка вокруг активного окна")
-        self.drop(g, "neon_mode", ["Радуга", "Фиолетовый", "Бирюзовый"], "Цвет рамки")
-        self.sld(g, "neon_width", 1, 8, 1, "Толщина")
-        self.sld(g, "neon_speed", 0.2, 4.0, 0.2, "Скорость")
+        c = self.section(p, "Новогодняя ёлка")
+        self.toggle(c, "tree_enabled", "Поставить ёлку на рабочий стол")
+        self.drop(c, "tree_side", "Положение", ["Справа", "Слева", "По центру"])
+        self.slider(c, "tree_size", "Размер (%)", 50, 170, 5)
+        self.slider(c, "tree_margin", "Отступ от края", 10, 300, 10)
+        self.slider(c, "tree_lift", "Поднять от низа", 0, 200, 5)
+
+        c2 = self.section(p, "Дед Мороз")
+        self.toggle(c2, "santa_enabled", "Плавный пролёт Деда Мороза на санях с оленями")
+        self.slider(c2, "santa_every", "Каждые N минут", 1, 20, 1)
+        self.slider(c2, "santa_size", "Размер (%)", 60, 160, 5)
+        self.slider(c2, "santa_speed", "Скорость полёта", 1, 14, 1)
+        self.slider(c2, "santa_height", "Высота полёта (%)", 5, 50, 1)
+        self.toggle(c2, "santa_gifts", "Сбрасывать подарки на окна")
+        self.buttons(c2, [("Запустить Деда Мороза", lambda: self.ov.send("call", "start_santa"), True)])
+
+        c3 = self.section(p, "Фейерверки")
+        self.toggle(c3, "fw_enabled", "Запускать салют")
+        self.slider(c3, "fw_every", "Каждые N секунд", 2, 25, 1)
+        self.slider(c3, "fw_size", "Размер залпа", 0.5, 2.0, 0.1)
+        self.buttons(c3, [("Запустить залп", lambda: self.ov.send("call", "spawn_rocket"), True)])
+
+        c4 = self.section(p, "Отсчёт до праздника")
+        self.toggle(c4, "count_enabled", "Показывать счётчик на рабочем столе")
+        self.drop(c4, "count_target", "Событие", ["Новый год", "Рождество", "Своя дата"])
+        self.slider(c4, "count_month", "Месяц (для своей даты)", 1, 12, 1)
+        self.slider(c4, "count_day", "День", 1, 31, 1)
+        self.drop(c4, "count_corner", "Угол экрана", ["Левый верх", "Правый верх", "Левый низ", "Правый низ"])
+        self.slider(c4, "count_size", "Размер (%)", 60, 160, 5)
+        self.color(c4, "count_color", "Цвет текста")
+        self.toggle(c4, "count_seconds", "Показывать секунды")
 
     def page_cursor(self, p):
-        g = self.group(p, "Реакция на курсор")
-        self.drop(
-            g,
-            "cursor_mode",
-            ["Физика ветра", "Сметать под курсором", "Ничего"],
-            "Что делает курсор",
-            "«Физика ветра» — частицы обтекают мышку. «Сметать» — убирает снег и снеговиков, куда проведёте.",
-        )
-        self.sld(g, "cursor_radius", 30, 200, 5, "Радиус")
-        self.sld(g, "cursor_force", 0.1, 3.0, 0.1, "Сила отталкивания")
-        self.tog(
-            g,
-            "cursor_blow",
-            "Сдувать снег с окон быстрым движением",
-            "Резко провели мышкой мимо сугроба — снежинки разлетаются.",
-        )
-        g = self.group(p, "След за курсором")
-        self.tog(g, "trail_enabled", "Рисовать след, когда двигаете мышку")
-        self.drop(
-            g,
-            "trail_kind",
-            [
-                "Искры",
-                "Звёздная пыль",
-                "Радуга",
-                "Пузырьки",
-                "Сердечки",
-                "Снежинки",
-                "Огонёк",
-            ],
-            "Из чего след",
-        )
-        self.sld(g, "trail_amount", 0.2, 3.0, 0.2, "Густота")
-        self.sld(g, "trail_size", 0.4, 3.0, 0.2, "Размер")
-        self.sld(g, "trail_life", 0.3, 3.0, 0.2, "Как долго держится")
+        c = self.section(p, "Курсор и снег")
+        self.drop(c, "cursor_mode", "Режим курсора",
+                  ["Физика ветра", "Сметать снег и снеговиков", "Ничего"])
+        self.slider(c, "cursor_radius", "Радиус действия", 40, 220, 5)
+        self.slider(c, "cursor_force", "Сила потока", 0.2, 3.0, 0.1)
+        self.toggle(c, "cursor_blow", "Сдувать снег с сугробов при быстром движении мыши")
+
+        c2 = self.section(p, "След за курсором")
+        self.toggle(c2, "trail_enabled", "Оставлять след")
+        self.drop(c2, "trail_kind", "Вид",
+                  ["Искры", "Звёздная пыль", "Пузырьки", "Сердечки", "Снежинки", "Огонь"])
+        self.slider(c2, "trail_amount", "Густота", 0.3, 3.0, 0.1)
+        self.slider(c2, "trail_size", "Размер", 0.5, 2.0, 0.1)
+        self.slider(c2, "trail_life", "Длина хвоста", 0.4, 2.5, 0.1)
 
     def page_app(self, p):
-        g = self.group(p, "Запуск и окно")
-        self.tog(
-            g,
-            "_autostart",
-            "Запускать вместе с Windows",
-            "Включается автоматически при входе в систему.",
-        )
-        self.ctl["_autostart"].set(is_autostart())
-        self.tog(
-            g,
-            "close_to_tray",
-            "Сворачивать к часам вместо выхода",
-            "По крестику окно прячется к часам. Выйти можно из меню у часов.",
-        )
-        self.tog(g, "start_hidden", "Запускать свёрнутым к часам")
-        g = self.group(p, "Производительность")
-        self.drop(
-            g,
-            "perf_mode",
-            ["Авто", "Обычный", "Экономия"],
-            "Режим",
-            "«Авто» — сам снижает число частиц, если компьютер нагружен.",
-        )
-        self.sld(g, "fps", 10, 60, 5, "Плавность (FPS)", "30 хватает; 60 — плавнее, но выше нагрузка.")
-        self.sld(
-            g,
-            "lead_ms",
-            0,
-            30,
-            1,
-            "Упреждение при движении окон, мс",
-            "Помогает гирлянде не отставать от быстрого окна. Если дёргается — поставьте 0.",
-        )
-        g = self.group(p, "Внешний вид программы")
-        self.drop(
-            g,
-            "ui_theme",
-            ["Тёмная (фиолет)", "Тёмная (синяя)", "Графит", "Светлая"],
-            "Тема",
-        )
-        self.drop(
-            g,
-            "ui_accent",
-            ["По теме", "Фиолетовый", "Голубой", "Розовый", "Зелёный", "Оранжевый"],
-            "Цвет кнопок и акцентов",
-        )
-        self.drop(g, "ui_font", ["Мелкий", "Обычный", "Крупный"], "Размер шрифта")
-        g = self.group(p, "Сброс")
-        self.btn(g, "Вернуть все настройки по умолчанию", self.reset_all)
+        c = self.section(p, "Запуск и трей")
+        self.toggle(c, "_autostart", "Запускать вместе с Windows",
+                    "Приложение тихо стартует в области уведомлений при входе в систему.",
+                    getter=is_autostart, setter=self.set_autostart_ui)
+        self.toggle(c, "start_hidden", "Скрывать окно настроек при автозапуске")
+        self.toggle(c, "close_to_tray", "При нажатии «Закрыть» сворачивать в трей")
+        self.toggle(c, "pause_fullscreen", "Ставить эффекты на паузу в полноэкранных играх и видео")
+
+        c2 = self.section(p, "Производительность и мониторы")
+        self.drop(c2, "perf_mode", "Режим нагрузки", ["Авто", "Красота", "Экономия"],
+                  "По умолчанию включена «Красота» — максимум частиц и плавность.")
+        self.slider(c2, "fps", "Частота кадров", 20, 75, 5)
+        self.drop(c2, "widget_monitor", "Монитор для ёлки, солнца, луны и счётчика",
+                  ["Основной", "Левый", "Правый"])
+
+        c3 = self.section(p, "Оформление окна")
+        self.drop(c3, "ui_theme", "Тема", list(THEMES))
+        self.drop(c3, "ui_accent", "Акцентный цвет", ["По теме"] + list(ACCENTS))
+        self.drop(c3, "ui_font", "Размер шрифта", list(FONT_SCALE))
+
+        c4 = self.section(p, "Управление")
+        self.buttons(c4, [("Сбросить настройки", self.reset_all, False),
+                          ("Выйти из приложения", self.quit, False)])
+
+
+def notify_running():
+    h = kernel32w.OpenEventW(0x0002, False, SHOW_EVENT)
+    if h:
+        kernel32w.SetEvent(h)
+        return True
+    return False
 
 
 def main():
-    cfg = load_cfg()
-    hidden = "--autostart" in sys.argv or cfg["start_hidden"]
-    if "--autostart" in sys.argv:
-        time.sleep(2)
-    ov = Overlay(cfg)
-    ov.start()
-    for _ in range(50):
-        if ov.engine is not None:
-            break
-        time.sleep(0.02)
-    root = tk.Tk()
+    if notify_running():
+        return
     try:
+        cfg = load_cfg()
+        ov = Overlay(cfg)
+        ov.start()
+        for _ in range(80):
+            if ov.engine is not None:
+                break
+            time.sleep(0.025)
+        root = tk.Tk()
+        root.report_callback_exception = report_tk_exception
+        hidden = ("--autostart" in sys.argv and cfg["start_hidden"]) or ("--hidden" in sys.argv)
         App(root, cfg, ov, hidden=hidden)
         root.mainloop()
-    finally:
-        if ov.is_alive():
-            ov.send("stop")
-            ov.join(timeout=1.0)
+    except Exception:
+        log_error("fatal")
 
 
 if __name__ == "__main__":
     main()
-Оброблено й проаналізовано в коді

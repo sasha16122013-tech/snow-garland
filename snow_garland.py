@@ -54,7 +54,7 @@ MONITORENUMPROC = ctypes.WINFUNCTYPE(
 WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
                              wintypes.WPARAM, wintypes.LPARAM)
 WINEVENTPROC = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD,
-                                  wintypes.HWND, ctypes.c_long, wintypes.c_long,
+                                  wintypes.HWND, ctypes.c_long, ctypes.c_long,
                                   wintypes.DWORD, wintypes.DWORD)
 
 user32.IsWindowVisible.argtypes = [wintypes.HWND]

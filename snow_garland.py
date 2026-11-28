@@ -104,21 +104,21 @@ user32.TrackPopupMenu.restype = ctypes.c_int
 user32.DestroyMenu.argtypes = [ctypes.c_void_p]
 user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
                                    wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                                   ctypes.c_int, wintypes.HWND, wintypes.c_void_p,
+                                   ctypes.c_int, wintypes.HWND, ctypes.c_void_p,
                                    ctypes.c_void_p, ctypes.c_void_p]
 user32.CreateWindowExW.restype = wintypes.HWND
 user32.CreateIconIndirect.argtypes = [ctypes.c_void_p]
-user32.CreateIconIndirect.restype = wintypes.c_void_p
+user32.CreateIconIndirect.restype = ctypes.c_void_p
 gdi32.CreateBitmap.argtypes = [ctypes.c_int, ctypes.c_int, wintypes.UINT, wintypes.UINT, ctypes.c_void_p]
-gdi32.CreateBitmap.restype = wintypes.c_void_p
+gdi32.CreateBitmap.restype = ctypes.c_void_p
 shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.c_void_p]
 shell32.Shell_NotifyIconW.restype = wintypes.BOOL
 kernel32w.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 kernel32w.GetModuleHandleW.restype = ctypes.c_void_p
 kernel32w.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
-kernel32w.CreateEventW.restype = wintypes.c_void_p
+kernel32w.CreateEventW.restype = ctypes.c_void_p
 kernel32w.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
-kernel32w.OpenEventW.restype = wintypes.c_void_p
+kernel32w.OpenEventW.restype = ctypes.c_void_p
 kernel32w.SetEvent.argtypes = [ctypes.c_void_p]
 kernel32w.WaitForSingleObject.argtypes = [ctypes.c_void_p, wintypes.DWORD]
 dwmapi.DwmGetWindowAttribute.argtypes = [
